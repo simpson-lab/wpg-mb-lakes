@@ -1,14 +1,9 @@
-library('readr')     # for data reading
-library('readxl')    # for data reading
-library('dplyr')     # for data wrangling
-library('tidyr')     # for data wrangling
-library('mgcv')      # for modelling
-library('ggplot2')   # for plotting
-library('cowplot')   # for plotting
-library('gratia')    # for plotting
-library('extrafont') # for plot fonts
-loadfonts(device = 'win', quiet = TRUE)
-theme_set(theme_bw(base_family = 'serif', base_line_size = 0.05))
+library('readr')  # for reading rds files
+library('readxl') # for data reading
+library('dplyr')  # for data wrangling
+library('tidyr')  # for data wrangling
+library('gratia') # for plotting
+source('analysis/default-figure-styling.R')
 
 # import data and model (see models.R for info on data pre-processing) ----
 wpg <- read_xlsx('data/wpg/Final Core 1 Summary data for Report.xlsx') %>%
@@ -38,8 +33,7 @@ mb <- read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx') %>%
 colnames(mb) <- tolower(colnames(mb))
 mb <- mb[-(1:2), ] %>%
   select(-pheo_a, -chla) %>%
-  pivot_longer(mb,
-               cols = -c('sample', 'depth_cm', 'thickness', 'interval', 'year'),
+  pivot_longer(cols = -c('sample', 'depth_cm', 'thickness', 'interval', 'year'),
                names_to = 'pigment',
                values_to = 'conc') %>%
   mutate(pigment = factor(pigment),
@@ -63,7 +57,6 @@ lakes <- rbind(wpg, mb) %>%
                                                         'Canthaxanthin',
                                                         'beta-carotene'))) %>%
   filter(year >= 1800)
-
 
 # read in model
 m.gammals <- read_rds('models/lakes-gammals-fs.rds')
@@ -300,18 +293,21 @@ p.mean.wpg2 <- ggplot() +
         strip.background.y = element_blank(),
         strip.text.y = element_blank())
 
-p.means <- plot_grid(plot_grid(p.mean.mb2 +
-                                 theme(axis.title.x = element_blank()),
-                               p.mean.wpg2, rel_widths = c(1.075, 1)),
+p.means <- plot_grid(plot_grid(get_plot_component(p.mean.mb, pattern = 'ylab-l'),
+                               p.mean.mb2 +
+                                 theme(axis.title = element_blank()),
+                               NULL,
+                               p.mean.wpg2,
+                               rel_widths = c(0.15, 1, 0, 1),
+                               nrow = 1),
                      get_plot_component(p.mean.mb, pattern = 'xlab-b'),
                      nrow = 2,
                      rel_heights = c(0.95, 0.05)) +
   draw_text(paste0(letters[1:10], '.'),
-            x = sort(rep(c(.06, 0.56), 5)),
+            x = sort(rep(c(.07, 0.54), 5)),
             y = rep(seq(.92, by = -0.1725, length.out = 5), 2),
             family = 'serif')
-# ggsave('figures/mean-predictions.pdf', plot = p.means, width = 12, height = 5.6,
-#        dpi = 300, device = cairo_pdf)
+# p2pdf('mean-predictions.pdf', p.means, scale = 2)
 
 # shape
 p.shape.mb <- ggplot() +
@@ -363,8 +359,7 @@ p.full <- plot_grid(plot_grid(p.mean.mb + xlab(NULL), p.mean.wpg, NULL,
                     get_plot_component(p.mean.mb, pattern = 'xlab-b'),
                     nrow = 2,
                     rel_heights = c(0.95, 0.05))
-ggsave('figures/mean-shape-variance-predictions.pdf',
-       plot = p.full, width = 12, height = 5.6, dpi = 300, device = cairo_pdf)
+p2pdf('mean-shape-variance-predictions.pdf', p.full, scale = 2, x.plots = 2)
 
 head(predict(m.gammals, se.fit = FALSE, type = 'link', newdata = newd) %>%
        as.data.frame() %>%
