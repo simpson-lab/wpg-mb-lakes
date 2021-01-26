@@ -1,11 +1,6 @@
 library('readxl')    # for data reading
 library('dplyr')     # for data wrangling
-library('tidyr')     # for data wrangling
-library('ggplot2')   # for plotting
-library('cowplot')   # for plotting
-library('extrafont') # for plot fonts
-loadfonts(device = 'win', quiet = TRUE)
-theme_set(theme_bw(base_family = 'serif', base_line_size = 0.05))
+source('analysis/default-figure-styling.R')
 
 COLNAMES <- read_xls('data/mb/Lake Manitoba dating Core 1.xls',
                      sheet = 'age calculation CRS B',
@@ -41,17 +36,16 @@ p.dating <-
               geom_point(aes(pb.210, depth)) +
               geom_errorbar(aes(xmin = pb.210.lwr, xmax = pb.210.upr, y = depth)) +
               labs(x = expression(paste(''^{210}~Pb~activity~(Bq~g^{-1}~dry~mass))),
-                   y = 'Mid depth (cm)') +
+                   y = 'Depth (cm)') +
               scale_y_reverse(),
             ggplot(cores) +
               facet_wrap(. ~ core) +
               geom_line(aes(year, depth)) +
               labs(x = 'Estimated year CE',
-                   y = 'Mid depth (cm)') +
+                   y = 'Depth (cm)') +
               scale_y_reverse(),
             labels = c('a.', 'b.'),
             label_fontfamily = 'serif',
             ncol = 1)
 
-ggsave('figures/210Pb-dating.pdf', p.dating, width = 6, height = 8, dpi = 300,
-       device = cairo_pdf)
+p2pdf('210Pb-dating.pdf', p.dating, x.plots = 2, y.plots = 4)
