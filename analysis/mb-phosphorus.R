@@ -26,11 +26,10 @@ p1 <- ggplot(phosphorus, aes(year, p, color = core, fill = core, shape = core)) 
   geom_point() +
   geom_smooth(formula = y ~ s(x), method = 'gam', alpha = 0.3, level = 0.95) +
   labs(x = 'Year C.E.', y = expression(Phosphorus~(mg~g^{-1}~dry))) +
-  ylim(c(0, NA)) +
-  scale_y_continuous(breaks = scales::breaks_pretty(n = 3)) +
+  scale_y_continuous(breaks = scales::breaks_pretty(n = 3), limits = c(0, NA)) +
   scale_color_brewer(NULL, type = 'qual', palette = 6) +
   scale_fill_brewer(NULL, type = 'qual', palette = 6) +
   scale_shape_discrete(NULL) +
   theme(legend.position = 'top')
-p2pdf('mb-phosphorus.pdf', p1, scale = 2)
+p2pdf('mb-phosphorus.pdf', p1, scale = 2, y.plots = 2)
 # p2pdf('phosphorus-2.pdf', p2, y.plots = 2, scale = 2)
