@@ -225,9 +225,7 @@ p.mean.mb <- ggplot() +
   
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = 'Year CE', y = expression(Mean~concentration~(nmol~g^{-1}~C))) +
-  theme(legend.position = 'none',
-        strip.background.y = element_blank(),
-        strip.text.y = element_blank())
+  theme(strip.text.y = element_blank())
 
 p.mean.wpg <- ggplot() +
   facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
@@ -243,9 +241,7 @@ p.mean.wpg <- ggplot() +
   
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = NULL, y = NULL) +
-  theme(legend.position = 'none',
-        strip.background.y = element_blank(),
-        strip.text.y = element_blank())
+  theme(strip.text.y = element_blank())
 
 # mean with variance highlight
 p.mean.mb2 <- ggplot() +
@@ -266,10 +262,7 @@ p.mean.mb2 <- ggplot() +
   geom_point(aes(year, conc), filter(lakes, lake == 'Lake Manitoba'), alpha = 0.3) +
   
   scale_y_continuous(limits = c(0, NA)) +
-  labs(x = 'Year CE', y = expression(Mean~concentration~(nmol~g^{-1}~C))) +
-  theme(legend.position = 'none',
-        strip.background.y = element_blank(),
-        strip.text.y = element_blank())
+  labs(x = 'Year CE', y = expression(Mean~concentration~(nmol~g^{-1}~C)))
 
 p.mean.wpg2 <- ggplot() +
   facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
@@ -288,26 +281,23 @@ p.mean.wpg2 <- ggplot() +
   geom_point(aes(year, conc), filter(lakes, lake == 'Lake Winnipeg'), alpha = 0.3) +
   
   scale_y_continuous(limits = c(0, NA)) +
-  labs(x = NULL, y = NULL) +
-  theme(legend.position = 'none',
-        strip.background.y = element_blank(),
-        strip.text.y = element_blank())
+  labs(x = NULL, y = NULL)
 
-p.means <- plot_grid(plot_grid(get_plot_component(p.mean.mb, pattern = 'ylab-l'),
-                               p.mean.mb2 +
-                                 theme(axis.title = element_blank()),
-                               NULL,
-                               p.mean.wpg2,
-                               rel_widths = c(0.15, 1, 0, 1),
-                               nrow = 1),
-                     get_plot_component(p.mean.mb, pattern = 'xlab-b'),
-                     nrow = 2,
-                     rel_heights = c(0.95, 0.05)) +
-  draw_text(paste0(letters[1:10], '.'),
+p.means <- plot_grid(get_plot_component(p.mean.mb, pattern = 'ylab-l'),
+                     p.mean.mb2 + theme(axis.title = element_blank(),
+                                        strip.text.y = element_text(color = 'transparent')),
+                     NULL,
+                     p.mean.wpg2,
+                     rel_widths = c(0.15, 1, 0, 1),
+                     nrow = 1) %>%
+  plot_grid(get_plot_component(p.mean.mb, pattern = 'xlab-b'),
+            nrow = 2,
+            rel_heights = c(0.95, 0.05)) +
+  draw_text(LABELS[1:10],
             x = sort(rep(c(.07, 0.54), 5)),
-            y = rep(seq(.92, by = -0.1725, length.out = 5), 2),
+            y = rep(seq(.95, by = -0.178, length.out = 5), 2),
             family = 'serif')
-# p2pdf('mean-predictions.pdf', p.means, scale = 2)
+#p2pdf('mean-predictions.pdf', p.means, scale = 2, y.plots = 1.25)
 
 # shape
 p.shape.mb <- ggplot() +
@@ -317,8 +307,7 @@ p.shape.mb <- ggplot() +
   geom_line(aes(year, shape), filter(pred, lake == 'Lake Manitoba')) +
   scale_y_continuous(limits = c(0, 5)) +
   labs(x = NULL, y = expression(Shape~parameter~(nmol~g^{-1}~C))) +
-  theme(legend.position = 'none',
-        strip.background.y = element_blank(),
+  theme(strip.background.y = element_blank(),
         strip.text.y = element_blank())
 p.shape.wpg <- ggplot() +
   facet_grid(pigment.expr ~ lake.expr, labeller = label_parsed) +
@@ -327,8 +316,7 @@ p.shape.wpg <- ggplot() +
   geom_line(aes(year, shape), filter(pred, lake == 'Lake Winnipeg')) +
   scale_y_continuous(limits = c(0, 5)) +
   labs(x = NULL, y = NULL) +
-  theme(legend.position = 'none',
-        strip.background.y = element_blank(),
+  theme(strip.background.y = element_blank(),
         strip.text.y = element_blank())
 
 # variance
@@ -339,8 +327,7 @@ p.var.mb <- ggplot() +
   geom_line(aes(year, s2), filter(pred, lake == 'Lake Manitoba')) +
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = NULL, y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C)))) +
-  theme(legend.position = 'none',
-        strip.background.y = element_blank(),
+  theme(strip.background.y = element_blank(),
         strip.text.y = element_blank())
 p.var.wpg <- ggplot() +
   facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
@@ -348,18 +335,17 @@ p.var.wpg <- ggplot() +
             color = '#5E8BDE', lwd = 2) +
   geom_line(aes(year, s2), filter(pred, lake == 'Lake Winnipeg')) +
   scale_y_continuous(limits = c(0, NA)) +
-  labs(x = NULL, y = NULL) +
-  theme(legend.position = 'none')
+  labs(x = NULL, y = NULL)
 
 # full figure
 p.full <- plot_grid(plot_grid(p.mean.mb + xlab(NULL), p.mean.wpg, NULL,
-                    p.shape.mb, p.shape.wpg, NULL,
-                    p.var.mb, p.var.wpg,
-                    nrow = 1, rel_widths = c(1, .95, .1, 1, .95, .1, 1, 1)),
+                              p.shape.mb, p.shape.wpg, NULL,
+                              p.var.mb, p.var.wpg,
+                              nrow = 1, rel_widths = c(1, .95, .1, 1, .95, .1, 1, 1)),
                     get_plot_component(p.mean.mb, pattern = 'xlab-b'),
                     nrow = 2,
                     rel_heights = c(0.95, 0.05))
-p2pdf('mean-shape-variance-predictions.pdf', p.full, scale = 2, x.plots = 2)
+#p2pdf('mean-shape-variance-predictions.pdf', p.full, scale = 2, x.plots = 2)
 
 head(predict(m.gammals, se.fit = FALSE, type = 'link', newdata = newd) %>%
        as.data.frame() %>%
@@ -393,7 +379,7 @@ ggplot(sims) +
 # derivatives plot ####
 slopes.mu <-
   mutate(slopes.mu,
-         name = as.character(fs_var),
+         name = as.character(lake_pigment),
          lake = substr(name, start = 1, regexpr('\\.', name) - 1),
          pigment = substr(name, regexpr('\\.', name) + 1, stop = nchar(name)),
          pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
@@ -410,7 +396,7 @@ slopes.mu <-
                                lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg'))
 slopes.shape <-
   mutate(slopes.shape,
-         name = as.character(fs_var),
+         name = as.character(lake_pigment),
          lake = substr(name, start = 1, regexpr('\\.', name) - 1),
          pigment = substr(name, regexpr('\\.', name) + 1, stop = nchar(name)),
          pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
@@ -425,14 +411,15 @@ slopes.shape <-
                                                         'beta-carotene')),
          lake.expr = case_when(lake == 'Lake Manitoba' ~ 'Lake~Manitoba',
                                lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg'))
-ggplot() +
+p.deriv <- 
+  ggplot() +
   facet_grid(pigment.expr ~ lake.expr, labeller = label_parsed) +
   geom_hline(yintercept = 0) +
-  geom_ribbon(aes(data, ymin = lower, ymax = upper), slopes.mu, alpha = 0.3,
+  geom_ribbon(aes(year, ymin = lower.mean, ymax = upper.mean), slopes.mu, alpha = 0.2,
               fill = 'forestgreen') +
-  geom_line(aes(data, derivative), slopes.mu, color = 'forestgreen') +
-  geom_ribbon(aes(data, ymin = lower, ymax = upper), slopes.shape, alpha = 0.3,
+  geom_line(aes(year, derivative), slopes.mu, color = 'forestgreen') +
+  geom_ribbon(aes(year, ymin = lower.shape, ymax = upper.shape), slopes.shape, alpha = 0.2,
               fill = 'goldenrod') +
-  geom_line(aes(data, derivative), slopes.shape, color = 'goldenrod') +
-  labs(x = NULL, y = 'Slope')
-ggsave('figures/derivatives.png', height = 8, width = 8)
+  geom_line(aes(year, derivative), slopes.shape, color = 'goldenrod') +
+  labs(x = 'Year C. E.', y = 'Slope')
+# p2pdf('derivatives.pdf', p.deriv, scale = 2.5)

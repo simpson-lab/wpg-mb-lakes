@@ -39,7 +39,7 @@ mb <- mb %>%
                                                         'Canthaxanthin',
                                                         'beta-carotene')))
 
-m <- readr::read_rds('models/mb-cores-gammals.rds')
+m <- readr::read_rds('models/mb-pigments-gammals.rds')
 
 # create predictions ----
 pred <- expand_grid(year = seq(1801, 2010, length.out = 400),
