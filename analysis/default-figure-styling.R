@@ -3,7 +3,8 @@ library('cowplot')   # for plotting
 library('extrafont') # for plot fonts
 loadfonts(device = 'win', quiet = TRUE)
 theme_set(theme_bw(base_family = 'serif') +
-            theme(panel.grid = element_blank()))
+            theme(panel.grid = element_blank(),
+                  strip.background = element_blank()))
 
 # using Limnology and Oceanography requirements:
 LABELS <- paste0(letters, '.') # top left, outside the figure
@@ -12,7 +13,7 @@ WIDTH <- 3.5 # inches
 HEIGHT <- WIDTH / 4 * 3 # 4:3 format
 
 p2pdf <- function(filename, p, width = WIDTH, height = HEIGHT, scale = 1, x.plots = 1,
-                  y.plots = 1) {
+                  y.plots = 1, device = cairo_pdf) {
   if(width > 5 | height > 6)
     warning('Figure sizes should be no more than 5" in width and 6" in height')
   if((x.plots + y.plots != 2) & (width != WIDTH | height != HEIGHT))
@@ -20,7 +21,7 @@ p2pdf <- function(filename, p, width = WIDTH, height = HEIGHT, scale = 1, x.plot
   
   ggsave(filename = filename,
          plot = p,
-         device = cairo_pdf,
+         device = device,
          path = 'figures/',
          scale = scale,
          width = width * x.plots,
