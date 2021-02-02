@@ -97,13 +97,6 @@ p.var <- ggplot() +
   scale_fill_brewer(type = 'qual', palette = 6) +
   labs(x = 'Year C.E.', y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C))))
 
+# p2pdf('mb-pigments.pdf', p.mean, width = 5, height = 2.5, scale = 2)
 p.full <- plot_grid(p.mean, p.var, ncol = 1, labels = c('a.', 'b.'))
-#p2pdf('mb-pigments.pdf', p.full, width = 7, height = 7, scale = 1.5)
-
-# p.full <- plot_grid(plot_grid(p.mean + xlab(NULL),
-#                               #p.shape + xlab(NULL),
-#                               p.var + xlab(NULL),
-#                               nrow = 1),
-#                     get_plot_component(p.mean, pattern = 'xlab-b'),
-#                     nrow = 2,
-#                     rel_heights = c(0.95, 0.05))
+# p2pdf('mb-pigments-mean-variance.pdf', p.full, width = 5, height = 5, scale = 2)
