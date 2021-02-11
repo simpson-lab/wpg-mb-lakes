@@ -33,13 +33,12 @@ read.core.data <- function(core) {
 }
 
 # single-core plot ----
-CS.COEF <- 1e4
-YEAR.A <- 1800
-YEAR.B <- .2
-core1 <- read.core.data(1) %>%
-  mutate(pb.year = (year - YEAR.A) / YEAR.B,
-         pb.year.lwr = (year - YEAR.A - se.year) / YEAR.B,
-         pb.year.upr = (year - YEAR.A + se.year) / YEAR.B)
+core1 <- read.core.data(1)
+
+# fixed coefficients for secondary axis
+YEAR.A <- 1740
+PB.COEF <- 0.25
+CS.COEF <- 1e4 * PB.COEF
 
 core1.tidy <-
   select(core1, depth, pb.210, cs.137) %>%
@@ -47,53 +46,73 @@ core1.tidy <-
   left_join(core1 %>%
               select(depth, se.pb.210, se.cs.137) %>%
               pivot_longer(-'depth', values_to = 'se') %>%
-              mutate(name = substr(name, 4, nchar(name))),
+              mutate(name = substr(name, nchar('se.') + 1, nchar(name))),
             by = c('depth', 'name')) %>%
-  mutate(slope = case_when(name == 'pb.210' ~ 1,
-                           name == 'cs.137' ~ CS.COEF,
-                           name == 'year' ~ YEAR.B),
-         intercept = case_when(name == 'pb.210' ~ 0,
-                               name == 'cs.137' ~ 0,
-                               name == 'year' ~ -1800),
+  mutate(slope = case_when(name == 'pb.210' ~ PB.COEF,
+                           name == 'cs.137' ~ CS.COEF),
+         intercept = case_when(name == 'pb.210' ~ YEAR.A,
+                               name == 'cs.137' ~ YEAR.A),
          lwr = (est - se) * slope + intercept,
          upr = (est + se) * slope + intercept,
          est = est * slope + intercept)
 
+isotope.lab <-
+  expression(atop(''^{210}~Pb~activity~(Bq~g^{-1}~dry~mass),
+                  ''^{137}~Cs~activity~(10^{-4}~Bq~g^{-1}~dry~mass)))
 p.triple <-
-  ggplot(filter(core1.tidy, name != 'year')) +
+  ggplot(core1.tidy) +
   
   # year line
-  geom_line(aes(pb.year, depth), core1) +
-  geom_ribbon(aes(xmin = pb.year.lwr, xmax = pb.year.upr, y = depth), core1, alpha = 0.3) +
+  geom_line(aes(year, depth), core1) +
+  geom_ribbon(aes(xmin = year.lwr, xmax = year.upr, y = depth),
+              core1, alpha = 0.3) +
   
   # points with SE
-  geom_errorbar(aes(xmin = lwr, xmax = upr, y = depth,
-                    color = factor(name, levels = c('pb.210','cs.137')))) +
-  geom_point(aes(est, depth, shape =  factor(name, levels = c('pb.210','cs.137')),
+  geom_errorbarh(aes(xmin = lwr, xmax = upr, y = depth,
+                     color = factor(name, levels = c('pb.210','cs.137'))),
+                 height = 0) +
+  geom_point(aes(est, depth,
+                 shape = factor(name, levels = c('pb.210','cs.137')),
                  color = factor(name, levels = c('pb.210','cs.137')))) +
   
   # other
-  labs(x = expression(atop(''^{210}~Pb~activity~(Bq~g^{-1}~dry~mass),
-                           ''^{137}~Cs~activity~(10^{-4}~Bq~g^{-1}~dry~mass))),
+  labs(x = 'Year C. E.',
        y = 'Depth (cm)') +
-  scale_y_reverse() +
-  scale_x_continuous(sec.axis = dup_axis(~ . * YEAR.B + YEAR.A, name = 'Year C. E.')) +
-  scale_shape_manual(NULL, values = c(1, 19)) +
+  scale_y_reverse(name = 'Depth (cm)',
+                  breaks = seq(0, 32.5, by = 2.5),
+                  labels = c(0, '', 5, '', 10, '', 15, '', 20, '',
+                             25, '', 30, ''),
+                  limits = c(33, 0)) +
+  scale_x_continuous(sec.axis =
+                       dup_axis(~ (. - YEAR.A) / PB.COEF,
+                                name = isotope.lab,
+                                breaks = 0:10 * 100,
+                                labels = c(0, '', 200, '', 400, '',
+                                           600, '', 800, '', 1000)),
+                     breaks = seq(1750, 2000, by = 25),
+                     labels = c(1750, '', 1800, '', 1850, '',
+                                1900, '', 1950, '', 2000),
+                     minor_breaks = seq(1750, 2000, by = 25)) +
+  scale_shape_manual(NULL, values = c(19, 1)) +
   scale_color_brewer(NULL, type = 'qual', palette = 6) +
-  theme(legend.position = c(0.3, -0.13), legend.text = element_blank(),
-        legend.key.width = unit(0.05, 'in')); p.triple
+  theme(legend.position = c(0.2, 1.1),
+        legend.text = element_blank(),
+        legend.key.height = unit(0.275, 'in'),
+        legend.spacing.x = unit(-1, 'in'))
 
-# p2pdf('pb-cs-year.pdf', p.triple, scale = 2, height = 2)
+#p2pdf('pb-cs-year.pdf', p.triple, scale = 1.5, height = 4)
 
 # multi-panel appendix figure ----
 # name rapair is ok
 cores <- bind_rows(read.core.data(1),
                    read.core.data(2),
                    read.core.data(3),
-                   read.core.data(4)) %>%
-  mutate(pb.year = (year - YEAR.A) / YEAR.B,
-         pb.year.lwr = (year - YEAR.A - se.year) / YEAR.B,
-         pb.year.upr = (year - YEAR.A + se.year) / YEAR.B)
+                   read.core.data(4))
+# y axis for depth
+depth.scale <- scale_y_reverse(name = 'Depth (cm)',
+                               breaks = seq(0, 37.5, by = 2.5),
+                               labels = c(0, '', 5, '', 10, '', 15, '', 20, '',
+                                          25, '', 30, '', 35, ''))
 
 cores.tidy <-
   select(cores, core, depth, pb.210, cs.137) %>%
@@ -104,40 +123,45 @@ cores.tidy <-
               mutate(name = substr(name, 4, nchar(name))),
             by = c('core', 'depth', 'name')) %>%
   mutate(slope = case_when(name == 'pb.210' ~ 1,
-                           name == 'cs.137' ~ CS.COEF,
-                           name == 'year' ~ YEAR.B),
-         intercept = case_when(name == 'pb.210' ~ 0,
-                               name == 'cs.137' ~ 0,
-                               name == 'year' ~ -1800),
-         lwr = (est - se) * slope + intercept,
-         upr = (est + se) * slope + intercept,
-         est = est * slope + intercept)
+                           name == 'cs.137' ~ 1e4),# don't scale by Pb
+         lwr = (est - se) * slope,
+         upr = (est + se) * slope,
+         est = est * slope)
 
 p.dating <- 
-  plot_grid(ggplot(filter(cores.tidy, name != 'year')) +
+  plot_grid(ggplot(cores.tidy) +
               facet_grid(. ~ core) +
-              geom_errorbar(aes(xmin = lwr, xmax = upr, y = depth,
-                                color = factor(name, levels = c('pb.210','cs.137')))) +
+              geom_errorbarh(aes(xmin = lwr, xmax = upr, y = depth,
+                                 color = factor(name,
+                                                levels = c('pb.210','cs.137'))),
+                             height = 0) +
               geom_point(aes(est, depth,
                              shape = factor(name, levels = c('pb.210','cs.137')),
                              color = factor(name, levels = c('pb.210','cs.137')))) +
-              labs(x = expression(atop(''^{210}~Pb~activity~(Bq~g^{-1}~dry~mass),
-                                       ''^{137}~Cs~activity~(10^{-4}~Bq~g^{-1}~dry~mass))),
-                   y = 'Depth (cm)') +
-              scale_y_reverse() +
-              scale_shape_manual(NULL, values = c(1, 19)) +
+              depth.scale +
+              scale_x_continuous(name = isotope.lab,
+                                 breaks = 0:11 * 125,
+                                 labels = c(0, '', 250, '', 500, '', 750, '',
+                                            1000, '', 1250, '')) +
+              scale_shape_manual(NULL, values = c(19, 1)) +
               scale_color_brewer(NULL, type = 'qual', palette = 6) +
-              theme(legend.position = c(0.37, -0.13), legend.text = element_blank(),
-                    legend.key.width = unit(0.05, 'in')),
+              theme(legend.position = c(0.37, -0.3),
+                    legend.text = element_blank(),
+                    legend.key.height = unit(0.265, 'in'),
+                    legend.spacing.y = unit(-1, 'in')),
             ggplot(cores) +
               facet_grid(. ~ core) +
-              geom_ribbon(aes(xmin = year.lwr, xmax = year.upr, y = depth), alpha = 0.2) +
+              geom_ribbon(aes(xmin = year.lwr, xmax = year.upr, y = depth),
+                          alpha = 0.2) +
               geom_line(aes(year, depth)) +
-              labs(x = 'Estimated year C. E.',
-                   y = 'Depth (cm)') +
-              scale_y_reverse(),
+              scale_x_continuous(name = 'Estimated year C. E.',
+                                 breaks = seq(1750, 2000, by = 25),
+                                 labels = c(1750, '', 1800, '', 1850, '',
+                                            1900, '', 1950, '', 2000),
+                                 minor_breaks = seq(1750, 2000, by = 25)) +
+              depth.scale,
             labels = LABELS,
             label_fontfamily = 'serif',
             ncol = 1,
-            rel_heights = c(1.1, 1)); p.dating
+            rel_heights = c(1.1, 1))
 # p2pdf('dating-appendix.pdf', p.dating, scale = 3)
