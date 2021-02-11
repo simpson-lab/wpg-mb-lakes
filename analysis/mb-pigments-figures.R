@@ -79,6 +79,7 @@ p.mean <- ggplot() +
   theme(legend.position = 'none') +
   scale_color_brewer(type = 'qual', palette = 6) +
   scale_fill_brewer(type = 'qual', palette = 6) +
+  ylim(c(0, NA)) +
   labs(x = 'Year C.E.', y = expression(Mean~concentration~(nmol~g^{-1}~C)))
 p.shape <- ggplot() +
   facet_grid(pigment.expr ~ core, scales = 'free_y', labeller = label_parsed) +
@@ -87,6 +88,7 @@ p.shape <- ggplot() +
   theme(legend.position = 'none') +
   scale_color_brewer(type = 'qual', palette = 6) +
   scale_fill_brewer(type = 'qual', palette = 6) +
+  ylim(c(0, NA)) +
   labs(x = 'Year C.E.', y = expression(Shape~parameter~(nmol~g^{-1}~C)))
 p.var <- ggplot() +
   facet_grid(pigment.expr ~ core, scales = 'free_y', labeller = label_parsed) +
@@ -95,8 +97,9 @@ p.var <- ggplot() +
   theme(legend.position = 'none') +
   scale_color_brewer(type = 'qual', palette = 6) +
   scale_fill_brewer(type = 'qual', palette = 6) +
+  ylim(c(0, NA)) +
   labs(x = 'Year C.E.', y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C))))
 
-# p2pdf('mb-pigments.pdf', p.mean, width = 5, height = 2.5, scale = 2)
+# p2pdf('mb-pigments.pdf', p.mean, width = 5, height = 3.5, scale = 2)
 p.full <- plot_grid(p.mean, p.var, ncol = 1, labels = c('a.', 'b.'))
-# p2pdf('mb-pigments-mean-variance.pdf', p.full, width = 5, height = 5, scale = 2)
+# p2pdf('mb-pigments-mean-variance.pdf', p.full, width = 5, height = 7, scale = 2)
