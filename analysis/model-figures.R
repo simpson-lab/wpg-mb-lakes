@@ -224,7 +224,7 @@ p.mean.mb <- ggplot() +
   geom_point(aes(year, conc), filter(lakes, lake == 'Lake Manitoba'), alpha = 0.3) +
   
   scale_y_continuous(limits = c(0, NA)) +
-  labs(x = 'Year CE', y = expression(Mean~concentration~(nmol~g^{-1}~C))) +
+  labs(x = 'Year C.E.', y = expression(Mean~concentration~(nmol~g^{-1}~C))) +
   theme(strip.text.y = element_blank())
 
 p.mean.wpg <- ggplot() +
@@ -262,7 +262,7 @@ p.mean.mb2 <- ggplot() +
   geom_point(aes(year, conc), filter(lakes, lake == 'Lake Manitoba'), alpha = 0.3) +
   
   scale_y_continuous(limits = c(0, NA)) +
-  labs(x = 'Year CE', y = expression(Mean~concentration~(nmol~g^{-1}~C)))
+  labs(x = 'Year C.E.', y = expression(Mean~concentration~(nmol~g^{-1}~C)))
 
 p.mean.wpg2 <- ggplot() +
   facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
@@ -283,20 +283,31 @@ p.mean.wpg2 <- ggplot() +
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = NULL, y = NULL)
 
-p.means <- plot_grid(get_plot_component(p.mean.mb, pattern = 'ylab-l'),
-                     p.mean.mb2 + theme(axis.title = element_blank(),
-                                        strip.text.y = element_text(color = 'transparent')),
-                     NULL,
+p.means.nolabs <-
+  plot_grid(p.mean.mb2 + theme(axis.title.x = element_blank(),
+                               strip.text.y = element_text(color = 'transparent')),
                      p.mean.wpg2,
-                     rel_widths = c(0.15, 1, 0, 1),
                      nrow = 1) %>%
   plot_grid(get_plot_component(p.mean.mb, pattern = 'xlab-b'),
             nrow = 2,
-            rel_heights = c(0.95, 0.05)) +
+            rel_heights = c(0.95, 0.05))
+#p2pdf('mean-predictions-nolabs.pdf', p.means.nolabs, scale = 2, y.plots = 1.25)
+
+p.means <- plot_grid(get_plot_component(p.mean.mb, pattern = 'ylab-l'),
+                            p.mean.mb2 + theme(axis.title = element_blank(),
+                                               strip.text.y = element_text(color = 'transparent')),
+                            NULL,
+                            p.mean.wpg2,
+                            rel_widths = c(0.15, 1, 0, 1),
+                            nrow = 1) %>%
+  plot_grid(get_plot_component(p.mean.mb, pattern = 'xlab-b'),
+            nrow = 2,
+            rel_heights = c(0.95, 0.05)) + 
   draw_text(LABELS[1:10],
             x = sort(rep(c(.07, 0.54), 5)),
             y = rep(seq(.95, by = -0.178, length.out = 5), 2),
             family = 'serif')
+
 #p2pdf('mean-predictions.pdf', p.means, scale = 2, y.plots = 1.25)
 
 # shape
