@@ -116,6 +116,10 @@ library('ggplot2')
     fit_var_draws
 }
 
+## Examples -----------------------------------------------------------
+
+## Ned to load models and create `newd` for the prediction locations
+
 ## simulations from posterior of variance of a Gamma LS model
 var_sim <- gammals_var(m.gammals, data = newd, nsims = 100)
 
