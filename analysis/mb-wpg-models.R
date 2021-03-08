@@ -43,7 +43,8 @@ wpg <- pivot_longer(wpg,
                     names_to = 'pigment',
                     values_to = 'conc') %>%
   mutate(pigment = factor(pigment),
-         lake = 'Lake Winnipeg') %>%
+         lake = 'Lake Winnipeg',
+         weight = interval / mean(interval)) %>%
   filter(!is.na(conc))
 
 # import Lake Manitoba data ----
@@ -72,7 +73,8 @@ mb <- pivot_longer(mb,
                    names_to = 'pigment',
                    values_to = 'conc') %>%
   mutate(pigment = factor(pigment),
-         lake = 'Lake Manitoba') %>%
+         lake = 'Lake Manitoba',
+         weight = interval / mean(interval)) %>%
   filter(!is.na(conc))
 
 # combine lake datasets
@@ -92,14 +94,14 @@ lakes <- rbind(wpg, mb) %>%
                                                         'Canthaxanthin',
                                                         'beta-carotene')))
 
-
 # plot data ----
 # mb starts in 1801, wpg starts much earlier
 ggplot(lakes, aes(year, conc)) +
   facet_wrap(pigment ~ lake, scales = 'free_y', ncol = 2) +
   geom_vline(xintercept = 1800, color = 'red') +
-  geom_point() +
+  geom_point(aes(size = weight)) +
   scale_color_gradient(low = 'darkorange', high = 'blue') +
+  scale_size('Weight', range = c(0.75, 1.75)) +
   labs(x = NULL, y = 'Concentration')
 
 # remove data prior to 1800
@@ -119,6 +121,7 @@ m.gammals <- gam(list(conc ~
                         s(year, lake_pigment, k = 10, bs = 'fs')),
                  family = gammals(),
                  data = lakes,
+                 weights = weight,
                  method = 'REML',
                  control = gam.control(nthreads = 4))
 tictoc::toc()
@@ -129,7 +132,7 @@ lakes <- mutate(lakes,
                 e = resid(m.gammals),
                 estar = abs(conc - m.gammals$fitted.values[, 1]))
 appraise(m.gammals)
-plot(m.gammals, pages = 1, scale = 0)
+draw(m.gammals)
 
 cowplot::plot_grid(ggplot(lakes, aes(year, e, group = pigment)) +
                      facet_grid(lake ~ .) +

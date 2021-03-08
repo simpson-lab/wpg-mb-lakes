@@ -162,51 +162,102 @@ for(i in 2:nrow(pred)) {
 }
 
 ################# change to 1e4 predictions ########################
-# sims <- smooth_samples(m.gammals, n = K, newdata = newd, seed = 1, ncores = 4)
-# pred.mean <-
-#   filter(sims, !grepl('s.1', smooth)) %>%
-#   select(-by_variable,-smooth, -term)
-# pred.mean <- pivot_wider(pred.mean, names_from = .x2, values_from = value)
-# pred.mean <- pivot_longer(pred.mean, cols = unique(lakes$lake_pigment))
-# pred.mean <- filter(pred.mean, !is.na(value))
-# pred.mean <-  mutate(pred.mean, sim = exp(`NA` + value)) %>%
-#   group_by(.x1, name) %>%
-#   summarize(mean.median = quantile(sim, 0.5),
-#             mean.lwr = quantile(sim, 0.025),
-#             mean.upr = quantile(sim, 0.975)) %>%
-#   mutate(year = .x1,
-#          lake = substr(name, start = 1, regexpr('\\.', name) - 1),
-#          pigment = substr(name, start = regexpr('\\.', name) + 1, stop = nchar(name)),
-#          pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
-#                                   pigment == 'b_car' ~ 'beta-carotene',
-#                                   pigment == 'canth' ~ 'Canthaxanthin',
-#                                   pigment == 'diatox' ~ 'Diatoxanthin',
-#                                   pigment == 'pheo_b' ~ 'Pheophytin~b'),
-#          pigment.expr = factor(pigment.expr, levels = c('Diatoxanthin',
-#                                                         'Alloxanthin',
-#                                                         'Pheophytin~b',
-#                                                         'Canthaxanthin',
-#                                                         'beta-carotene')),
-#          lake.expr = case_when(lake == 'Lake Manitoba' ~ 'Lake~Manitoba',
-#                                lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg'))
-# 
-# mutate(sigma2 = )
-# group_by(smooth, term, .x1, .x2) %>%
-#   summarize(median = median(value),
-#             lwr = quantile(value, 0.025),
-#             upr = quantile(value, 0.975))
-# #predict(m.gammals, newd, se.fit = TRUE, type = 'link') %>%
-# as.data.frame() %>%
-#   as_tibble() %>%
-#   rename(log.mean = fit.1,
-#          shape = fit.2,
-#          se.log.mean = se.fit.1,
-#          se.shape = se.fit.2) %>%
-#   mutate(mean = exp(log.mean),
-#          mean.lwr = exp(log.mean - 1.96 * se.log.mean),
-#          mean.upr = exp(log.mean + 1.96 * se.log.mean),
-#          s2 = mean * shape) %>%
-#   bind_cols(newd)
+nchar('Lake Manitoba') == nchar('Lake Winnipeg')
+K <- 1e4
+#sims <- read_rds('analysis/10,000-sims-gammals.rds')
+sims.mu <- smooth_samples(m.gammals, n = K, newdata = newd, seed = 1,
+                          ncores = 4, term = 's(year,lake_pigment)')
+sims.shape <- smooth_samples(m.gammals, n = K, newdata = newd, seed = 1,
+                             ncores = 4, term = 's.1(year,lake_pigment)')
+sims.mu <- fitted_samples(m.gammals, n = K, newdata = newd, seed = 1,
+                          ncores = 4, term = 's(year,lake_pigment)')
+sims.shape <- fitted_samples(m.gammals, n = K, newdata = newd, seed = 1,
+                             ncores = 4, term = 's.1(year,lake_pigment)')
+## simulate
+sims.mu <- simulate(m.gammals, nsim = K, newdata = newd, seed = 1,
+                    ncores = 4, term = 's(year,lake_pigment)') %>%
+  as_tibble(name_repair = 'check_unique') %>%
+  bind_cols(newd) %>%
+  pivot_longer(paste0('V', 1:K), names_to = 'draw', values_to = 'fit') %>%
+  mutate(conc = exp(fit))
+sims.shape <- simulate(m.gammals, nsim = K, newdata = newd, seed = 1,
+                       ncores = 4, term = 's.1(year,lake_pigment)') %>%
+  as_tibble(name_repair = 'check_unique') %>%
+  bind_cols(newd) %>%
+  pivot_longer(paste0('V', 1:K), names_to = 'draw', values_to = 'shape')
+sims.var <- mutate(sims.mu,
+                   value = conc * sims.shape$shape)
+##
+
+#saveRDS(sims, 'analysis/10,000-sims-gammals.rds')
+
+#sims.mu <- select(sims.mu, -by_variable,-smooth, -term, -row)
+#sims.mu$conc <- sims.mu$value + coef(m.gammals)['(Intercept)']
+sims.mu <-
+  group_by(sims.mu, year, lake_pigment) %>%
+  summarise(m = exp(median(conc)),
+            lwr = exp(quantile(conc, 0.025)),
+            upr = exp(quantile(conc, 0.975))) %>%
+  mutate(lake = substr(lake_pigment, 1, 13),
+         pigment = substr(lake_pigment, 15, 30))
+
+# CIs too wide, likely prediction intervals
+ggplot() +
+  facet_wrap(lake ~ pigment, ncol = 2, scales = 'free_y') +
+  geom_ribbon(aes(year, ymin = lwr, ymax = upr), sims.mu,
+              alpha = 0.3) +
+  geom_line(aes(year, m), sims.mu) +
+  geom_point(aes(year, conc), lakes, alpha = 0.3)
+
+# Variance CIs
+sims.shape <- select(sims.shape, -by_variable, -term, -row)
+sims.shape <- mutate(sims.shape, )
+sims.var <- left_join(sims.mu, sims.shape, by = c('.x1', '.x2', 'draw'))
+sims.var <- pivot_wider(sims.var, names_from = 'smooth',
+                        values_from = 'value')
+sims.var <- mutate(sims.var, sigma2)
+
+pivot_longer(cols = levels(lakes$lake_pigment),
+             names_to = 'lake_pigment', values_to = 'conc')
+sims2 <- left_join(sims.mu, sims.shape, by = c('.x1', '.x2'))
+sims2 <- mutate(sims2,
+                mu = exp(mu),
+                s2 = mu * exp(shape))
+sims2 <- group_by(sims2, .x1, .x2)
+sims2 <- summarize(sims2,
+                   mean.median = quantile(mu, 0.5),
+                   mean.lwr = quantile(mu, 0.025),
+                   mean.upr = quantile(mu, 0.975),
+                   s2.median = quantile(s2, 0.5),
+                   s2.lwr = quantile(s2, 0.025),
+                   s2.upr = quantile(s2, 0.975))
+sims2 <- mutate(sims2,
+                year = .x1,
+                lake = substr(.x2, start = 1, regexpr('\\.', .x2) - 1),
+                pigment = substr(.x2, start = regexpr('\\.', .x2) + 1,
+                                 stop = 100), # go 'til the end 
+                pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
+                                         pigment == 'b_car' ~ 'beta-carotene',
+                                         pigment == 'canth' ~ 'Canthaxanthin',
+                                         pigment == 'diatox' ~ 'Diatoxanthin',
+                                         pigment == 'pheo_b' ~ 'Pheophytin~b'),
+                pigment.expr = factor(pigment.expr, levels = c('Diatoxanthin',
+                                                               'Alloxanthin',
+                                                               'Pheophytin~b',
+                                                               'Canthaxanthin',
+                                                               'beta-carotene')),
+                lake.expr = case_when(lake == 'Lake Manitoba' ~ 'Lake~Manitoba',
+                                      lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg'))
+ggplot() +
+  facet_grid(lake.expr ~ pigment.expr, scales = 'free_y') +
+  geom_ribbon(aes(year, ymin = mean.lwr, ymax = mean.upr), sims2, fill = 'red',
+              alpha = 0.2) +
+  geom_line(aes(year, mean.median), sims2, color = 'red') +
+  geom_ribbon(aes(year, ymin = mean.lwr, ymax = mean.upr), pred, alpha = 0.2) +
+  geom_line(aes(year, mean), pred) +
+  geom_point(aes(year, conc), lakes)
+
+pred <- left_join(pred, sims2, by = c(''))
 
 # plot predictions ####
 # mean
@@ -286,20 +337,20 @@ p.mean.wpg2 <- ggplot() +
 p.means.nolabs <-
   plot_grid(p.mean.mb2 + theme(axis.title.x = element_blank(),
                                strip.text.y = element_text(color = 'transparent')),
-                     p.mean.wpg2,
-                     nrow = 1) %>%
+            p.mean.wpg2,
+            nrow = 1) %>%
   plot_grid(get_plot_component(p.mean.mb, pattern = 'xlab-b'),
             nrow = 2,
             rel_heights = c(0.95, 0.05))
 #p2pdf('mean-predictions-nolabs.pdf', p.means.nolabs, scale = 2, y.plots = 1.25)
 
 p.means <- plot_grid(get_plot_component(p.mean.mb, pattern = 'ylab-l'),
-                            p.mean.mb2 + theme(axis.title = element_blank(),
-                                               strip.text.y = element_text(color = 'transparent')),
-                            NULL,
-                            p.mean.wpg2,
-                            rel_widths = c(0.15, 1, 0, 1),
-                            nrow = 1) %>%
+                     p.mean.mb2 + theme(axis.title = element_blank(),
+                                        strip.text.y = element_text(color = 'transparent')),
+                     NULL,
+                     p.mean.wpg2,
+                     rel_widths = c(0.15, 1, 0, 1),
+                     nrow = 1) %>%
   plot_grid(get_plot_component(p.mean.mb, pattern = 'xlab-b'),
             nrow = 2,
             rel_heights = c(0.95, 0.05)) + 
@@ -352,40 +403,12 @@ p.var.wpg <- ggplot() +
 p.full <- plot_grid(plot_grid(p.mean.mb + xlab(NULL), p.mean.wpg, NULL,
                               p.shape.mb, p.shape.wpg, NULL,
                               p.var.mb, p.var.wpg,
-                              nrow = 1, rel_widths = c(1, .95, .1, 1, .95, .1, 1, 1)),
+                              nrow = 1,
+                              rel_widths = c(1, .95, .1, 1, .95, .1, 1, 1)),
                     get_plot_component(p.mean.mb, pattern = 'xlab-b'),
                     nrow = 2,
                     rel_heights = c(0.95, 0.05))
 #p2pdf('mean-shape-variance-predictions.pdf', p.full, scale = 2, x.plots = 2)
-
-head(predict(m.gammals, se.fit = FALSE, type = 'link', newdata = newd) %>%
-       as.data.frame() %>%
-       mutate())
-
-# posterior samples for the mean, but the variance?
-K <- 1e4
-sims <- simulate(m.gammals, nsim = K, newdata = newd) %>%
-  as.data.frame() %>%
-  bind_cols(newd) %>%
-  pivot_longer(-c('year', 'pigment', 'lake', 'lake_pigment'),
-               names_to = 'sim') %>%
-  group_by(year, pigment, lake) %>%
-  summarise(lwr = quantile(value, probs = 0.025),
-            upr = quantile(value, probs = 0.975),
-            median = median(value),
-            mu = mean(value),
-            s2 = var(value))
-
-# posterior mean
-ggplot(sims) +
-  facet_wrap(pigment ~ lake, ncol = 2, scales = 'free') +
-  geom_ribbon(aes(year, ymin = lwr, ymax = upr), alpha = 0.1) +
-  geom_line(aes(year, median))
-
-# variance in the posterior mean
-ggplot(sims) +
-  facet_wrap(pigment ~ lake, ncol = 2, scales = 'free') +
-  geom_line(aes(year, s2))
 
 # derivatives plot ####
 slopes.mu <-
@@ -425,12 +448,12 @@ slopes.shape <-
 p.deriv <- 
   ggplot() +
   facet_grid(pigment.expr ~ lake.expr, labeller = label_parsed) +
-  geom_hline(yintercept = 0) +
-  geom_ribbon(aes(year, ymin = lower.mean, ymax = upper.mean), slopes.mu, alpha = 0.2,
-              fill = 'forestgreen') +
+  geom_hline(yintercept = 0, color = 'grey') +
+  geom_ribbon(aes(year, ymin = lower.mean, ymax = upper.mean), slopes.mu,
+              alpha = 0.2, fill = 'forestgreen') +
   geom_line(aes(year, derivative), slopes.mu, color = 'forestgreen') +
-  geom_ribbon(aes(year, ymin = lower.shape, ymax = upper.shape), slopes.shape, alpha = 0.2,
-              fill = 'goldenrod') +
+  geom_ribbon(aes(year, ymin = lower.shape, ymax = upper.shape), slopes.shape,
+              alpha = 0.2, fill = 'goldenrod') +
   geom_line(aes(year, derivative), slopes.shape, color = 'goldenrod') +
-  labs(x = 'Year C. E.', y = 'Slope')
+  labs(x = 'Year C. E.', y = 'Slope'); p.deriv
 # p2pdf('derivatives.pdf', p.deriv, scale = 2.5)

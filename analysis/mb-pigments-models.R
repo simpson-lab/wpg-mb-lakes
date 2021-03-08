@@ -5,31 +5,46 @@ library('ggplot2')   # for plotting
 library('mgcv')      # for modelling
 library('gratia')    # for plotting
 theme_set(theme_bw())
+SAMPLING.DATE <- lubridate::decimal_date(as.POSIXlt('2014-04-01'))
 
-mb <- bind_rows(read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx') %>%
-                  mutate(core = 'Core~1'),
-                read_xlsx('data/mb/Manitoba pigs isotope Core 2 April 2014.xlsx') %>%
-                  mutate(core = 'Core~2',
-                         CHLA = CHL_A),
-                read_xlsx('data/mb/Manitoba pigs isotope Core 3 April 2014.xlsx') %>%
-                  mutate(core = 'Core~3'),
-                read_xlsx('data/mb/Manitoba pigs isotope Core 4 April 2014.xlsx') %>%
-                  mutate(core = 'Core~4')) %>%
-  select(core, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, PHEO_A, CHLA) %>%
+mb <-
+  bind_rows(read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx') %>%
+              mutate(core = 'Core~1',
+                     interval = c(SAMPLING.DATE, YEAR[-length(YEAR)]) - YEAR,
+                     weight = interval / mean(interval)),
+            read_xlsx('data/mb/Manitoba pigs isotope Core 2 April 2014.xlsx') %>%
+              mutate(core = 'Core~2',
+                     CHLA = CHL_A,
+                     interval = c(SAMPLING.DATE, YEAR[-length(YEAR)]) - YEAR,
+                     weight = interval / mean(interval)),
+            read_xlsx('data/mb/Manitoba pigs isotope Core 3 April 2014.xlsx') %>%
+              mutate(core = 'Core~3',
+                     interval = c(SAMPLING.DATE, YEAR[-length(YEAR)]) - YEAR,
+                     weight = interval / mean(interval)),
+            read_xlsx('data/mb/Manitoba pigs isotope Core 4 April 2014.xlsx') %>%
+              mutate(core = 'Core~4',
+                     interval = c(SAMPLING.DATE, YEAR[-length(YEAR)]) - YEAR,
+                     weight = interval / mean(interval))) %>%
+  select(core, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, PHEO_A, CHLA,
+         interval, weight) %>%
   rename(allo = ALLOX,
-         b_car = BCAROT) %>%
-  mutate(interval = lag(YEAR) - YEAR) %>%
-  filter(interval > 0)
+         b_car = BCAROT)
+
 colnames(mb) <- tolower(colnames(mb))
+
+# check weights
+ggplot(mb) +
+  facet_grid(core ~ ., labeller = label_parsed) +
+  geom_point(aes(year, weight))
 
 # no sudden changes in degradation
 ggplot(mb) +
-  facet_grid(core ~ .) +
+  facet_grid(core ~ ., labeller = label_parsed) +
   geom_point(aes(year, chla/pheo_a))
 
 mb <- mb %>%
   select(-pheo_a, -chla) %>%
-  pivot_longer(cols = -c('core', 'interval', 'year'),
+  pivot_longer(cols = -c('core', 'interval', 'year', 'weight'),
                names_to = 'pigment',
                values_to = 'conc') %>%
   mutate(pigment = factor(pigment)) %>%
@@ -49,13 +64,14 @@ sum(mb$conc == 0)
 
 m <- readr::read_rds('models/mb-cores-gammals.rds')
 
-# ~ 1.25 minutes on 4 cores
+# less than a minute on 4 cores
 m <- gam(list(conc ~ s(year, core_pigment, bs = 'fs', k = 10), # mean formula
               ~ s(year, core_pigment, bs = 'fs', k = 10) +     # scale formula
                 s(interval, bs = 'cr', k = 5)),
          family = gammals(),
          data = mb,
          method = 'REML',
+         weights = weight,
          control = gam.control(nthreads = 4))
 #saveRDS(m, 'models/mb-pigments-gammals.rds')
 
