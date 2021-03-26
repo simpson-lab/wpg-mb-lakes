@@ -13,8 +13,8 @@ EXAMPLES <- FALSE # should examples be run?
 `gammals_var` <- function(model, data, nsims = 100,
                           unconditional  = FALSE, ...) {
     ## Simulate variance from posterior
-    sim <- sim_gammals_var(model = model, data = data,
-                           nsims = nsims, unconditional = unconditional)
+    sim <- sim_gammals(model = model, data = data,
+                       nsims = nsims, unconditional = unconditional)
     ## process results into a tibble
     colnames(sim) <- paste0("sim", seq_len(nsims))
     tbl <- as_tibble(sim) %>%
@@ -39,15 +39,36 @@ EXAMPLES <- FALSE # should examples be run?
     
     ## f'(x) = (f(x + eps) - f(x))/eps as eps --> 0
     
-    ## simulate predict variance for data
-    var1 <- sim_gammals_var(model = model, data = data,
-                            nsims = nsims, unconditional = unconditional)
+    ## prediction matrix
+    Xp1 <- predict(model, newdata = data, type = 'lpmatrix')
+    ## model parameters
+    coefs <- coef(model)
+    ## Bayesian covariance matrix
+    Vb <- vcov(model, unconditional = unconditional)
+    ## which coefs go with the scale linear predictor
+    scale_take <- grepl('^s\\.1', colnames(Xp1)) |
+        colnames(Xp1) %in% c('(Intercept).1')
+    mu_take <- !scale_take
+    ## inverse link functions
+    ilink_mu <- inv_link(model, parameter = "location") # mu inv link function
+    ilink_scale <- inv_link(model, parameter = "scale") # scale inverse link
+
+    ## Simulate from posterior using Gaussian approximation
+    betas <- mvnfast::rmvn(n = nsims,
+                           mu = coefs,
+                           sigma = Vb)
+    
+    ## predict variance for data
+    var1 <- gammals_mat_mult(betas, Xp1, mu_take, scale_take,
+                             ilink_mu, ilink_scale)
     data2 <- data # copy
     ## shift the variable of interest by eps
     data2[[var]] <- data2[[var]] + eps
     ## predict for shifted data
-    var2 <- sim_gammals_var(model = model, data = data2,
-                            nsims = nsims, unconditional = unconditional)
+    ## prediction matrix
+    Xp2 <- predict(model, newdata = data2, type = 'lpmatrix')
+    var2 <- gammals_mat_mult(betas, Xp2, mu_take, scale_take,
+                             ilink_mu, ilink_scale)
 
     ## compute finite differences
     sim_d <- (var2 - var1) / eps
@@ -63,40 +84,60 @@ EXAMPLES <- FALSE # should examples be run?
     tbl
 }
 
+`gammals_mat_mult` <- function(betas, Xp, mu_take, scale_take,
+                               ilink_mu, ilink_scale) {
+    ## subset Xp matrix into mean and scale parts
+    Xp_mu <- Xp[, mu_take, drop = FALSE]
+    Xp_scale <- Xp[, scale_take, drop = FALSE]
+
+    ## Predict for mean
+    fit_mu <- Xp_mu %*% t(betas[, mu_take, drop = FALSE]) # predict on internal scale
+    fit_mu <- ilink_mu(fit_mu) # apply g-1() this is just identity so redundant
+    ## This model is parameterised in terms of the log-mean, so we still need to
+    ## transform to the actual data scale using exp()
+    fit_mu <- exp(fit_mu)
+    
+    ## Predict for scale
+    fit_scale <- Xp_scale %*%
+        t(betas[, scale_take, drop = FALSE]) # predict on internal scale
+    fit_scale <- ilink_scale(fit_scale) # apply g-1()
+    ## fit scale even after using inverse link is log for scale parameter, so
+    ## more back transforming
+    fit_scale <- exp(fit_scale)
+
+    ## variance is mean * scale
+    fit_var_draws <- fit_mu * fit_scale
+    ## return
+    fit_var_draws
+}
+
 ##' The internal workhorse does all the cool stuff 
-`sim_gammals_var` <- function(model, data, nsims = 100, unconditional = FALSE,
+`sim_gammals` <- function(model, data, nsims = 100, unconditional = FALSE,
                               ...) {
     ## prediction matrix
     Xp <- predict(model, newdata = data, type = 'lpmatrix')
+    ## model parameters
+    coefs <- coef(model)
     ## Bayesian covariance matrix
     Vb <- vcov(model, unconditional = unconditional)
     ## which coefs go with the scale linear predictor
     scale_take <- grepl('^s\\.1', colnames(Xp)) |
         colnames(Xp) %in% c('(Intercept).1')
-    ## simply later code so form the compliment to select mean linear predictor
+
+    ## Simulate from posterior using Gaussian approximation
+    betas <- mvnfast::rmvn(n = nsims,
+                           mu = coefs,
+                           sigma = Vb)
+    
+    ## simplify later code so form the compliment to select mean
+    ## linear predictor
     mu_take <- !scale_take
     ## subset Xp matrix into mean and scale parts
     Xp_mu <- Xp[, mu_take, drop = FALSE]
     Xp_scale <- Xp[, scale_take, drop = FALSE]
-    ## subset Bayesian VCOV matrix into mean and scale parts
-    Vb_mu <- Vb[mu_take, mu_take, drop = FALSE]
-    Vb_scale <- Vb[scale_take, scale_take, drop = FALSE]
-    ## model parameters
-    coefs <- coef(model)
-    ## split into mean and scale parts
-    coefs_mu <- coefs[mu_take]
-    coefs_scale <- coefs[scale_take]
-
-    ## Simulate from posterior using Gaussian approximation
-    betas_mu <- mvnfast::rmvn(n = nsims,
-                              mu = coefs_mu,
-                              sigma = Vb_mu)
-    betas_scale <- mvnfast::rmvn(n = nsims,
-                                 mu = coefs_scale,
-                                 sigma = Vb_scale)
 
     ## Predict for mean
-    fit_mu <- Xp_mu %*% t(betas_mu) # predict on internal scale
+    fit_mu <- Xp_mu %*% t(betas[, mu_take, drop = FALSE]) # predict on internal scale
     ilink_mu <- inv_link(model, parameter = "location") # link function
     fit_mu <- ilink_mu(fit_mu) # apply g-1() this is just identity so redundant
     ## This model is parameterised in terms of the log-mean, so we still need to
@@ -104,7 +145,8 @@ EXAMPLES <- FALSE # should examples be run?
     fit_mu <- exp(fit_mu)
     
     ## Predict for scale
-    fit_scale <- Xp_scale %*% t(betas_scale) # predict on internal scale
+    fit_scale <- Xp_scale %*%
+        t(betas[, scale_take, drop = FALSE]) # predict on internal scale
     ilink_scale <- inv_link(model, parameter = "scale") # scale inverse link
     fit_scale <- ilink_scale(fit_scale) # apply g-1()
     ## fit scale even after using inverse link is log for scale parameter, so
@@ -120,12 +162,81 @@ EXAMPLES <- FALSE # should examples be run?
 ## Examples -----------------------------------------------------------
 
 if(EXAMPLES) {
-    library(ggplot2)
+    library('ggplot2')
+    library('readr')
+    library('dplyr')
+    library('tidyr')
+    library('readxl')
+    library('gratia')
     ## number of simulations
-    K <- 1
+    K <- 25
     
     ## Need to create `newd` for the prediction locations
     m.gammals <- read_rds('models/lakes-gammals-fs.rds')
+    
+    ## import data and model (see models.R for info on data pre-processing) ----
+    wpg <- read_xlsx('data/wpg/Final Core 1 Summary data for Report.xlsx') %>%
+        select(SECTION_NO, YEAR, DIATOX, ALLO, PHEO_B, PHEO_A, CHL_A, CANTH, B_CAR,
+               DEPTH_CM) %>%
+        mutate(thickness = DEPTH_CM - lag(DEPTH_CM),
+               interval = lag(YEAR) - YEAR) %>%
+        rename(sample = SECTION_NO)
+    colnames(wpg) <- tolower(colnames(wpg))
+    wpg <- wpg[-(1:2), ]
+    wpg <- select(wpg, -chl_a, -pheo_a) %>%
+        pivot_longer(cols = -c('sample', 'depth_cm', 'thickness', 'interval', 'year'),
+                     names_to = 'pigment',
+                     values_to = 'conc') %>%
+        mutate(pigment = factor(pigment),
+               lake = 'Lake Winnipeg') %>%
+        filter(!is.na(conc))
+    
+    mb <- read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx') %>%
+        select(SAMPLE, MID_DEPTH_CM, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, PHEO_A,
+               CHLA) %>%
+        rename(depth_cm = MID_DEPTH_CM,
+               allo = ALLOX,
+               b_car = BCAROT) %>%
+        mutate(thickness = depth_cm - lag(depth_cm),
+               interval = lag(YEAR) - YEAR)
+    colnames(mb) <- tolower(colnames(mb))
+    mb <- mb[-(1:2), ] %>%
+        select(-pheo_a, -chla) %>%
+        pivot_longer(cols = -c('sample', 'depth_cm', 'thickness', 'interval', 'year'),
+                     names_to = 'pigment',
+                     values_to = 'conc') %>%
+        mutate(pigment = factor(pigment),
+               lake = 'Lake Manitoba') %>%
+        filter(!is.na(conc))
+    
+    ## combine lake datasets
+    lakes <- rbind(wpg, mb) %>%
+        mutate(lake_pigment = interaction(lake, pigment, drop = TRUE),
+               lake = factor(lake),
+               pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
+                                        pigment == 'b_car' ~ 'beta-carotene',
+                                        pigment == 'canth' ~ 'Canthaxanthin',
+                                        pigment == 'diatox' ~ 'Diatoxanthin',
+                                        pigment == 'pheo_b' ~ 'Pheophytin~b'),
+               lake.expr = case_when(lake == 'Lake Manitoba' ~ 'Lake~Manitoba',
+                                     lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg'),
+               pigment.expr = factor(pigment.expr, levels = c('Diatoxanthin',
+                                                              'Alloxanthin',
+                                                              'Pheophytin~b',
+                                                              'Canthaxanthin',
+                                                              'beta-carotene'))) %>%
+        filter(year >= 1800)
+    
+    ## create new data for regularly-spaced predictions
+    group_by(lakes, lake) %>% summarise(interval = mean(interval))
+    newd <- with(lakes,
+                 expand_grid(year = seq(min(year), max(year), by = 1),
+                             pigment = unique(lakes$pigment),
+                             lake = unique(lakes$lake))) %>%
+        mutate(interval = case_when(lake == 'Lake Manitoba' ~ 4.16,
+                                    lake == 'Lake Winnipeg' ~ 2.70,
+                                    TRUE ~ NA_real_),
+               lake_pigment = interaction(lake, pigment, drop = TRUE))
     
     ## simulations from posterior of variance of a Gamma LS model
     var_sim <- gammals_var(m.gammals, data = newd, nsims = K)
@@ -139,7 +250,7 @@ if(EXAMPLES) {
     ## note these are all being done on the variance scale itself ad only via
     ## left finite differences
     var_d <- gammals_var_deriv(m.gammals, data = newd, nsims = K,
-                               var = "year", eps = 1e-7)
+                               var = "year", eps = 0.00001)
     
     ## plot derivatives
     ggplot(var_d, aes(x = year, y = derivative, group = simulation)) +
