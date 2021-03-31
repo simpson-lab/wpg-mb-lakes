@@ -45,13 +45,13 @@ EXAMPLES <- FALSE # should examples be run?
     coefs <- coef(model)
     ## Bayesian covariance matrix
     Vb <- vcov(model, unconditional = unconditional)
-    ## which coefs go with the scale linear predictor
-    scale_take <- grepl('^s\\.1', colnames(Xp1)) |
+    ## which coefs go with the theta linear predictor
+    theta_take <- grepl('^s\\.1', colnames(Xp1)) |
         colnames(Xp1) %in% c('(Intercept).1')
-    mu_take <- !scale_take
+    mu_take <- !theta_take
     ## inverse link functions
     ilink_mu <- inv_link(model, parameter = "location") # mu inv link function
-    ilink_scale <- inv_link(model, parameter = "scale") # scale inverse link
+    ilink_theta <- inv_link(model, parameter = "scale") # theta inverse link
 
     ## Simulate from posterior using Gaussian approximation
     betas <- mvnfast::rmvn(n = nsims,
@@ -59,16 +59,16 @@ EXAMPLES <- FALSE # should examples be run?
                            sigma = Vb)
     
     ## predict variance for data
-    var1 <- gammals_mat_mult(betas, Xp1, mu_take, scale_take,
-                             ilink_mu, ilink_scale)
+    var1 <- gammals_mat_mult(betas, Xp1, mu_take, theta_take,
+                             ilink_mu, ilink_theta)
     data2 <- data # copy
     ## shift the variable of interest by eps
     data2[[var]] <- data2[[var]] + eps
     ## predict for shifted data
     ## prediction matrix
     Xp2 <- predict(model, newdata = data2, type = 'lpmatrix')
-    var2 <- gammals_mat_mult(betas, Xp2, mu_take, scale_take,
-                             ilink_mu, ilink_scale)
+    var2 <- gammals_mat_mult(betas, Xp2, mu_take, theta_take,
+                             ilink_mu, ilink_theta)
 
     ## compute finite differences
     sim_d <- (var2 - var1) / eps
@@ -84,11 +84,11 @@ EXAMPLES <- FALSE # should examples be run?
     tbl
 }
 
-`gammals_mat_mult` <- function(betas, Xp, mu_take, scale_take,
-                               ilink_mu, ilink_scale) {
+`gammals_mat_mult` <- function(betas, Xp, mu_take, theta_take,
+                               ilink_mu, ilink_theta) {
     ## subset Xp matrix into mean and scale parts
     Xp_mu <- Xp[, mu_take, drop = FALSE]
-    Xp_scale <- Xp[, scale_take, drop = FALSE]
+    Xp_theta <- Xp[, theta_take, drop = FALSE]
 
     ## Predict for mean
     fit_mu <- Xp_mu %*% t(betas[, mu_take, drop = FALSE]) # predict on internal scale
@@ -97,16 +97,20 @@ EXAMPLES <- FALSE # should examples be run?
     ## transform to the actual data scale using exp()
     fit_mu <- exp(fit_mu)
     
-    ## Predict for scale
-    fit_scale <- Xp_scale %*%
-        t(betas[, scale_take, drop = FALSE]) # predict on internal scale
-    fit_scale <- ilink_scale(fit_scale) # apply g-1()
-    ## fit scale even after using inverse link is log for scale parameter, so
+    ## Predict for theta
+    fit_theta <- Xp_theta %*%
+        t(betas[, theta_take, drop = FALSE]) # predict on internal scale
+    fit_theta <- ilink_theta(fit_theta) # apply g-1()
+    ## fit theta even after using inverse link is log for theta parameter, so
     ## more back transforming
-    fit_scale <- exp(fit_scale)
+    fit_theta <- exp(fit_theta)
 
-    ## variance is mean * scale
-    fit_var_draws <- fit_mu * fit_scale
+    ## variance is mu * s where s is the scale in sense of rgamma, not theta
+    ## From ?rgamma Var(y) = shape * scale^2 = (1 / theta) * (mu * theta)^2
+    ## From ?gammals Var(y) = mu * scale = mu * s
+    ##   where scale = s = mu * theta. Hence from ?gammals we arrive finally
+    ##   at: Var(y) = mu * s = mu * (mu * theta)
+    fit_var_draws <- fit_mu * (fit_mu * fit_theta)
     ## return
     fit_var_draws
 }
@@ -120,8 +124,8 @@ EXAMPLES <- FALSE # should examples be run?
     coefs <- coef(model)
     ## Bayesian covariance matrix
     Vb <- vcov(model, unconditional = unconditional)
-    ## which coefs go with the scale linear predictor
-    scale_take <- grepl('^s\\.1', colnames(Xp)) |
+    ## which coefs go with the theta linear predictor
+    theta_take <- grepl('^s\\.1', colnames(Xp)) |
         colnames(Xp) %in% c('(Intercept).1')
 
     ## Simulate from posterior using Gaussian approximation
@@ -131,10 +135,10 @@ EXAMPLES <- FALSE # should examples be run?
     
     ## simplify later code so form the compliment to select mean
     ## linear predictor
-    mu_take <- !scale_take
-    ## subset Xp matrix into mean and scale parts
+    mu_take <- !theta_take
+    ## subset Xp matrix into mean and theta parts
     Xp_mu <- Xp[, mu_take, drop = FALSE]
-    Xp_scale <- Xp[, scale_take, drop = FALSE]
+    Xp_theta <- Xp[, theta_take, drop = FALSE]
 
     ## Predict for mean
     fit_mu <- Xp_mu %*% t(betas[, mu_take, drop = FALSE]) # predict on internal scale
@@ -144,17 +148,21 @@ EXAMPLES <- FALSE # should examples be run?
     ## transform to the actual data scale using exp()
     fit_mu <- exp(fit_mu)
     
-    ## Predict for scale
-    fit_scale <- Xp_scale %*%
-        t(betas[, scale_take, drop = FALSE]) # predict on internal scale
-    ilink_scale <- inv_link(model, parameter = "scale") # scale inverse link
-    fit_scale <- ilink_scale(fit_scale) # apply g-1()
-    ## fit scale even after using inverse link is log for scale parameter, so
+    ## Predict for theta
+    fit_theta <- Xp_theta %*%
+        t(betas[, theta_take, drop = FALSE]) # predict on internal scale
+    ilink_theta <- inv_link(model, parameter = "scale") # theta inverse link
+    fit_theta <- ilink_theta(fit_theta) # apply g-1()
+    ## fit scale even after using inverse link is log for theta parameter, so
     ## more back transforming
-    fit_scale <- exp(fit_scale)
+    fit_theta <- exp(fit_theta)
 
-    ## variance is mean * scale
-    fit_var_draws <- fit_mu * fit_scale
+    ## variance is mu * s where s is the scale in sense of rgamma, not theta
+    ## From ?rgamma Var(y) = shape * scale^2 = (1 / theta) * (mu * theta)^2
+    ## From ?gammals Var(y) = mu * scale = mu * s
+    ##   where scale = s = mu * theta. Hence from ?gammals we arrive finally
+    ##   at: Var(y) = mu * s = mu * (mu * theta)
+    fit_var_draws <- fit_mu * (fit_mu * fit_theta)
     ## return
     fit_var_draws
 }
@@ -162,6 +170,7 @@ EXAMPLES <- FALSE # should examples be run?
 ## Examples -----------------------------------------------------------
 
 if(EXAMPLES) {
+    
     library('ggplot2')
     library('readr')
     library('dplyr')
