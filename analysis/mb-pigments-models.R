@@ -5,6 +5,7 @@ library('ggplot2')   # for plotting
 library('mgcv')      # for modelling
 library('gratia')    # for plotting
 theme_set(theme_bw())
+source('analysis/variance-simulation-and-derivatives.R')
 SAMPLING.DATE <- lubridate::decimal_date(as.POSIXlt('2014-04-01'))
 
 mb <-
@@ -62,7 +63,7 @@ ggplot(mb, aes(year, conc, color = core, fill = core)) +
 # no zeros => can use gamma location-scale model
 sum(mb$conc == 0)
 
-m <- readr::read_rds('models/mb-cores-gammals.rds')
+m <- readRDS('models/mb-pigments-gammals.rds')
 
 # less than a minute on 4 cores
 m <- gam(list(conc ~ s(year, core_pigment, bs = 'fs', k = 10), # mean formula
@@ -77,3 +78,39 @@ m <- gam(list(conc ~ s(year, core_pigment, bs = 'fs', k = 10), # mean formula
 
 appraise(m) # diagnostics ok
 draw(m)
+
+mb <- mutate(mb,
+             e = resid(m),
+             estar = abs(conc - m$fitted.values[, 1]))
+
+# for some: low concentrations overestimated, high underestimated
+cowplot::plot_grid(ggplot(mb, aes(year, e, group = pigment)) +
+                     facet_grid(core ~ .) +
+                     geom_point(),
+                   ggplot(mb, aes(interval, e, group = pigment)) +
+                     facet_grid(core ~ .) +
+                     geom_point(),
+                   ggplot(mb, aes(log(conc), e, group = pigment)) +
+                     facet_grid(pigment ~ core, scale = 'free_x') +
+                     geom_point(),
+                   ggplot(mb, aes(e, group = pigment)) +
+                     facet_grid(core ~ .) +
+                     geom_density())
+
+newd <- with(mb,
+             expand_grid(year = seq(min(year), max(year), by = 1),
+                         pigment = unique(mb$pigment),
+                         core = unique(mb$core))) %>%
+  left_join(group_by(mb, core) %>% summarize(interval = mean(interval)),
+            by = 'core') %>%
+  mutate(core_pigment = interaction(core, pigment, drop = TRUE, sep = '_'))
+
+sims <-
+  gammals_var(model = m, data = newd, nsims = 100) %>%
+  group_by(year, core, pigment) %>%
+  summarize(variance = mean(variance), .groups = 'drop')
+
+ggplot() +
+  facet_grid(pigment ~ core, scales = 'free_y',labeller = label_both)+
+  geom_point(aes(year, estar), mb, alpha = 0.3) +
+  geom_line(aes(year, sqrt(variance)), sims, color = 'red')
