@@ -3,12 +3,11 @@ library('readxl')    # for data reading
 library('dplyr')     # for data wrangling
 library('tidyr')     # for data wrangling
 library('mgcv')      # for modelling
-library('ggplot2')   # for plotting
-library('cowplot')   # for plotting
 library('gratia')    # for plotting
-library('extrafont') # for plot fonts
-loadfonts(device = 'win', quiet = TRUE)
-theme_set(theme_bw(base_family = 'serif'))
+library('ggplot2')   # for plotting
+theme_set(theme_bw())
+source('analysis/variance-simulation-and-derivatives.R') # for estimates of V(Y)
+
 
 # pigments:
 # diatox (diatoxanthin  = diatoms)
@@ -39,7 +38,8 @@ wpg <- select(wpg, -chl_a, -pheo_a)
 
 # change table orientation to long, remove NAs
 wpg <- pivot_longer(wpg,
-                    cols = -c('sample', 'depth_cm', 'thickness', 'interval', 'year'),
+                    cols = -c('sample', 'depth_cm', 'thickness', 'interval',
+                              'year'),
                     names_to = 'pigment',
                     values_to = 'conc') %>%
   mutate(pigment = factor(pigment),
@@ -49,8 +49,8 @@ wpg <- pivot_longer(wpg,
 
 # import Lake Manitoba data ----
 mb <- read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx') %>%
-  select(SAMPLE, MID_DEPTH_CM, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, PHEO_A,
-         CHLA) %>%
+  select(SAMPLE, MID_DEPTH_CM, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT,
+         PHEO_A, CHLA) %>%
   rename(depth_cm = MID_DEPTH_CM,
          allo = ALLOX,
          b_car = BCAROT) %>%
@@ -69,7 +69,8 @@ mb <- mb[-(1:2), ] %>%
 
 # change table orientation to long, remove NAs
 mb <- pivot_longer(mb,
-                   cols = -c('sample', 'depth_cm', 'thickness', 'interval', 'year'),
+                   cols = -c('sample', 'depth_cm', 'thickness', 'interval',
+                             'year'),
                    names_to = 'pigment',
                    values_to = 'conc') %>%
   mutate(pigment = factor(pigment),
@@ -115,7 +116,7 @@ m.gammals <- read_rds('models/lakes-gammals-fs.rds')
 tictoc::tic()
 m.gammals <- gam(list(conc ~
                         # formula for mean
-                        s(year, lake_pigment, k = 15, bs = 'fs', xt = list(bs = 'cr')),
+                        s(year,lake_pigment, k=15, bs='fs', xt = list(bs='cr')),
                       # formula for scale
                       ~ s(interval, k = 10) + # number of years /sample
                         s(year, lake_pigment, k = 10, bs = 'fs')),
@@ -146,3 +147,23 @@ cowplot::plot_grid(ggplot(lakes, aes(year, e, group = pigment)) +
                    ggplot(lakes, aes(e, group = pigment)) +
                      facet_grid(lake ~ .) +
                      geom_density())
+
+newd <- with(lakes,
+             expand_grid(year = seq(min(year), max(year), by = 1),
+                         pigment = unique(lakes$pigment),
+                         lake = unique(lakes$lake))) %>%
+  mutate(interval = case_when(lake == 'Lake Manitoba' ~ 4.16,
+                              lake == 'Lake Winnipeg' ~ 2.70,
+                              TRUE ~ NA_real_),
+         lake_pigment = interaction(lake, pigment, drop = TRUE))
+
+sims <-
+  gammals_var(model = m.gammals, data = newd, nsims = 100) %>%
+  group_by(year, lake, pigment) %>%
+  summarize(variance = mean(variance), .groups = 'drop')
+
+ggplot() +
+  facet_wrap(lake ~ pigment, ncol = 2, scales = 'free_y', dir = 'h',
+             labeller = label_both) +
+  geom_point(aes(year, estar), lakes, alpha = 0.3) +
+  geom_line(aes(year, sqrt(variance)), sims, color = 'red')

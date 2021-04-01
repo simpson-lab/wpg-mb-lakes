@@ -4,6 +4,7 @@ library('dplyr')  # for data wrangling
 library('tidyr')  # for data wrangling
 library('gratia') # for plotting
 source('analysis/default-figure-styling.R')
+source('analysis/variance-simulation-and-derivatives.R')
 
 # import data and model (see models.R for info on data pre-processing) ----
 wpg <- read_xlsx('data/wpg/Final Core 1 Summary data for Report.xlsx') %>%
@@ -23,8 +24,8 @@ wpg <- select(wpg, -chl_a, -pheo_a) %>%
   filter(!is.na(conc))
 
 mb <- read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx') %>%
-  select(SAMPLE, MID_DEPTH_CM, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, PHEO_A,
-         CHLA) %>%
+  select(SAMPLE, MID_DEPTH_CM, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT,
+         PHEO_A, CHLA) %>%
   rename(depth_cm = MID_DEPTH_CM,
          allo = ALLOX,
          b_car = BCAROT) %>%
@@ -75,43 +76,47 @@ newd <- with(lakes,
 
 # find derivatives
 set.seed(1)
-slopes.mu <- derivatives(m.gammals, newdata = newd, term = 's(year,lake_pigment)',
-                         type = 'central', interval = 'simultaneous') %>%
-  rename(year = data,
-         lake_pigment = fs_var,
-         lower.mean = lower,
-         upper.mean = upper) %>%
-  select(year, lake_pigment, derivative, se, crit, lower.mean, upper.mean)
+slopes.mu <-
+  gammals_mean_deriv(model = m.gammals, data = newd, var = 'year',nsims =1e4)%>%
+  group_by(year, lake_pigment) %>%
+  summarize(mu.deriv = median(derivative),
+            lwr.mu.deriv = quantile(derivative, probs = 0.025),
+            upr.mu.deriv = quantile(derivative, probs = 0.975),
+            .groups = 'drop')
 
-slopes.shape <- derivatives(m.gammals, newdata = newd, term = 's.1(year,lake_pigment)',
-                            interval = 'simultaneous') %>%
-  rename(year = data,
-         lake_pigment = fs_var,
-         lower.shape = lower,
-         upper.shape = upper) %>%
-  select(year, lake_pigment, derivative, se, crit, lower.shape, upper.shape)
+slopes.s2 <-
+  gammals_var_deriv(model = m.gammals, data = newd, var = 'year',nsims = 1e4)%>%
+  group_by(year, lake_pigment) %>%
+  summarize(s2.deriv = median(derivative),
+            lwr.s2.deriv = quantile(derivative, probs = 0.025),
+            upr.s2.deriv = quantile(derivative, probs = 0.975),
+            .groups = 'drop')
 
 # predictions
+mu <- gammals_mean(model = m.gammals, data = newd, nsims = 1e4) %>%
+  group_by(year, lake_pigment) %>%
+  summarize(mu = median(mean),
+            lwr.mu = quantile(mean, probs = 0.025),
+            upr.mu = quantile(mean, probs = 0.975),
+            .groups = 'drop')
+s2 <- gammals_var(model = m.gammals, data = newd, nsims = 1e4) %>%
+  group_by(year, lake_pigment) %>%
+  summarize(s2 = median(variance),
+            lwr.s2 = quantile(variance, probs = 0.025),
+            upr.s2 = quantile(variance, probs = 0.975),
+            .groups = 'drop') %>%
+  mutate(sd = sqrt(s2),
+         lwr.sd = sqrt(lwr.s2),
+         upr.sd = sqrt(upr.s2))
+
 pred <-
-  predict(m.gammals, newd, se.fit = TRUE, type = 'link') %>%
-  as.data.frame() %>%
-  as_tibble() %>%
-  rename(log.mean = fit.1,
-         shape = fit.2,
-         se.log.mean = se.fit.1,
-         se.shape = se.fit.2) %>%
-  bind_cols(newd) %>%
+  newd %>%
+  left_join(mu, by = c('year', 'lake_pigment')) %>%
+  left_join(s2, by = c('year', 'lake_pigment')) %>%
   left_join(slopes.mu, by = c('year', 'lake_pigment')) %>%
-  left_join(slopes.shape, by = c('year', 'lake_pigment')) %>%
-  mutate(mean = exp(log.mean),
-         mean.lwr = exp(log.mean - 1.96 * se.log.mean),
-         mean.upr = exp(log.mean + 1.96 * se.log.mean),
-         shape.lwr = shape - 1.96 * se.shape,
-         shape.upr = shape + 1.96 * se.shape,
-         s2 = mean * shape,
-         signif.mu = lower.mean > 0 | upper.mean < 0,
-         signif.shape = lower.shape > 0 | upper.shape < 0,
-         signif.s2 = TRUE) %>%
+  left_join(slopes.s2, by = c('year', 'lake_pigment')) %>%
+  mutate(signif.mu = lwr.mu.deriv > 0 | upr.mu.deriv < 0,
+         signif.s2 = lwr.s2.deriv > 0 | upr.s2.deriv < 0) %>%
   mutate(pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
                                   pigment == 'b_car' ~ 'beta-carotene',
                                   pigment == 'canth' ~ 'Canthaxanthin',
@@ -125,12 +130,11 @@ pred <-
          lake.expr = case_when(lake == 'Lake Manitoba' ~ 'Lake~Manitoba',
                                lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg')) %>%
   arrange(lake_pigment) %>%
-  mutate(segm.mu.bool = signif.mu != lag(signif.mu) | lake_pigment != lag(lake_pigment),
-         segm.mu = 1,
-         segm.shape.bool = signif.shape != lag(signif.shape) |
+  mutate(segm.mu.bool = signif.mu != lag(signif.mu) |
            lake_pigment != lag(lake_pigment),
-         segm.shape = 1,
-         segm.s2.bool = signif.s2 != lag(signif.s2) | lake_pigment != lag(lake_pigment),
+         segm.mu = 1,
+         segm.s2.bool = signif.s2 != lag(signif.s2) |
+           lake_pigment != lag(lake_pigment),
          segm.s2 = 1)
 
 ## different groups for each significant segment
@@ -143,15 +147,6 @@ for(i in 2:nrow(pred)) {
   }
 }
 
-# shape
-for(i in 2:nrow(pred)) {
-  if(pred$segm.shape.bool[i]) {
-    pred$segm.shape[i] <- pred$segm.shape[i - 1] + 1
-  } else {
-    pred$segm.shape[i] <- pred$segm.shape[i - 1]
-  }
-}
-
 # variance
 for(i in 2:nrow(pred)) {
   if(pred$segm.s2.bool[i]) {
@@ -161,172 +156,71 @@ for(i in 2:nrow(pred)) {
   }
 }
 
-################# change to 1e4 predictions ########################
-nchar('Lake Manitoba') == nchar('Lake Winnipeg')
-K <- 1e4
-#sims <- read_rds('analysis/10,000-sims-gammals.rds')
-sims.mu <- smooth_samples(m.gammals, n = K, newdata = newd, seed = 1,
-                          ncores = 4, term = 's(year,lake_pigment)')
-sims.shape <- smooth_samples(m.gammals, n = K, newdata = newd, seed = 1,
-                             ncores = 4, term = 's.1(year,lake_pigment)')
-sims.mu <- fitted_samples(m.gammals, n = K, newdata = newd, seed = 1,
-                          ncores = 4, term = 's(year,lake_pigment)')
-sims.shape <- fitted_samples(m.gammals, n = K, newdata = newd, seed = 1,
-                             ncores = 4, term = 's.1(year,lake_pigment)')
-## simulate
-sims.mu <- simulate(m.gammals, nsim = K, newdata = newd, seed = 1,
-                    ncores = 4, term = 's(year,lake_pigment)') %>%
-  as_tibble(name_repair = 'check_unique') %>%
-  bind_cols(newd) %>%
-  pivot_longer(paste0('V', 1:K), names_to = 'draw', values_to = 'fit') %>%
-  mutate(conc = exp(fit))
-sims.shape <- simulate(m.gammals, nsim = K, newdata = newd, seed = 1,
-                       ncores = 4, term = 's.1(year,lake_pigment)') %>%
-  as_tibble(name_repair = 'check_unique') %>%
-  bind_cols(newd) %>%
-  pivot_longer(paste0('V', 1:K), names_to = 'draw', values_to = 'shape')
-sims.var <- mutate(sims.mu,
-                   value = conc * sims.shape$shape)
-##
-
-#saveRDS(sims, 'analysis/10,000-sims-gammals.rds')
-
-#sims.mu <- select(sims.mu, -by_variable,-smooth, -term, -row)
-#sims.mu$conc <- sims.mu$value + coef(m.gammals)['(Intercept)']
-sims.mu <-
-  group_by(sims.mu, year, lake_pigment) %>%
-  summarise(m = exp(median(conc)),
-            lwr = exp(quantile(conc, 0.025)),
-            upr = exp(quantile(conc, 0.975))) %>%
-  mutate(lake = substr(lake_pigment, 1, 13),
-         pigment = substr(lake_pigment, 15, 30))
-
-# CIs too wide, likely prediction intervals
-ggplot() +
-  facet_wrap(lake ~ pigment, ncol = 2, scales = 'free_y') +
-  geom_ribbon(aes(year, ymin = lwr, ymax = upr), sims.mu,
-              alpha = 0.3) +
-  geom_line(aes(year, m), sims.mu) +
-  geom_point(aes(year, conc), lakes, alpha = 0.3)
-
-# Variance CIs
-sims.shape <- select(sims.shape, -by_variable, -term, -row)
-sims.shape <- mutate(sims.shape, )
-sims.var <- left_join(sims.mu, sims.shape, by = c('.x1', '.x2', 'draw'))
-sims.var <- pivot_wider(sims.var, names_from = 'smooth',
-                        values_from = 'value')
-sims.var <- mutate(sims.var, sigma2)
-
-pivot_longer(cols = levels(lakes$lake_pigment),
-             names_to = 'lake_pigment', values_to = 'conc')
-sims2 <- left_join(sims.mu, sims.shape, by = c('.x1', '.x2'))
-sims2 <- mutate(sims2,
-                mu = exp(mu),
-                s2 = mu * exp(shape))
-sims2 <- group_by(sims2, .x1, .x2)
-sims2 <- summarize(sims2,
-                   mean.median = quantile(mu, 0.5),
-                   mean.lwr = quantile(mu, 0.025),
-                   mean.upr = quantile(mu, 0.975),
-                   s2.median = quantile(s2, 0.5),
-                   s2.lwr = quantile(s2, 0.025),
-                   s2.upr = quantile(s2, 0.975))
-sims2 <- mutate(sims2,
-                year = .x1,
-                lake = substr(.x2, start = 1, regexpr('\\.', .x2) - 1),
-                pigment = substr(.x2, start = regexpr('\\.', .x2) + 1,
-                                 stop = 100), # go 'til the end 
-                pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
-                                         pigment == 'b_car' ~ 'beta-carotene',
-                                         pigment == 'canth' ~ 'Canthaxanthin',
-                                         pigment == 'diatox' ~ 'Diatoxanthin',
-                                         pigment == 'pheo_b' ~ 'Pheophytin~b'),
-                pigment.expr = factor(pigment.expr, levels = c('Diatoxanthin',
-                                                               'Alloxanthin',
-                                                               'Pheophytin~b',
-                                                               'Canthaxanthin',
-                                                               'beta-carotene')),
-                lake.expr = case_when(lake == 'Lake Manitoba' ~ 'Lake~Manitoba',
-                                      lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg'))
-ggplot() +
-  facet_grid(lake.expr ~ pigment.expr, scales = 'free_y') +
-  geom_ribbon(aes(year, ymin = mean.lwr, ymax = mean.upr), sims2, fill = 'red',
-              alpha = 0.2) +
-  geom_line(aes(year, mean.median), sims2, color = 'red') +
-  geom_ribbon(aes(year, ymin = mean.lwr, ymax = mean.upr), pred, alpha = 0.2) +
-  geom_line(aes(year, mean), pred) +
-  geom_point(aes(year, conc), lakes)
-
-pred <- left_join(pred, sims2, by = c(''))
-
 # plot predictions ####
 # mean
-p.mean.mb <- ggplot() +
-  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
-  geom_ribbon(aes(year, ymin = mean.lwr, ymax = mean.upr),
+p.mu.mb <- ggplot() +
+  facet_grid(pigment.expr ~ lake.expr, scales = 'free',
+             labeller = label_parsed) +
+  geom_ribbon(aes(year, ymin = lwr.mu, ymax = upr.mu),
               filter(pred, lake == 'Lake Manitoba'), alpha = 0.3) +
   
   # lines
-  geom_line(aes(year, mean, group = segm.mu), color = 'red', # mean highlight
+  geom_line(aes(year, mu, group = segm.mu), color = 'red', # mean highlight
             filter(pred, lake == 'Lake Manitoba', signif.mu), lwd = 2) +
-  geom_line(aes(year, mean), filter(pred, lake == 'Lake Manitoba')) +
+  geom_line(aes(year, mu), filter(pred, lake == 'Lake Manitoba')) +
   
   # datapoints
-  geom_point(aes(year, conc), filter(lakes, lake == 'Lake Manitoba'), alpha = 0.3) +
+  geom_point(aes(year,conc), filter(lakes, lake=='Lake Manitoba'),alpha = 0.3) +
   
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = 'Year C.E.', y = expression(Mean~concentration~(nmol~g^{-1}~C))) +
   theme(strip.text.y = element_blank())
 
-p.mean.wpg <- ggplot() +
-  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
-  geom_ribbon(aes(year, ymin = mean.lwr, ymax = mean.upr),
+p.mu.wpg <- ggplot() +
+  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller=label_parsed) +
+  geom_ribbon(aes(year, ymin = lwr.mu, ymax = upr.mu),
               filter(pred, lake == 'Lake Winnipeg'), alpha = 0.3) +
   # lines
-  geom_line(aes(year, mean, group = segm.mu), color = 'red', # mean highlight
+  geom_line(aes(year, mu, group = segm.mu), color = 'red', # mean highlight
             filter(pred, lake == 'Lake Winnipeg', signif.mu), lwd = 2) +
-  geom_line(aes(year, mean), filter(pred, lake == 'Lake Winnipeg')) +
+  geom_line(aes(year, mu), filter(pred, lake == 'Lake Winnipeg')) +
   
   # datapoints
-  geom_point(aes(year, conc), filter(lakes, lake == 'Lake Winnipeg'), alpha = 0.3) +
+  geom_point(aes(year, conc), filter(lakes, lake=='Lake Winnipeg'), alpha=0.3) +
   
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = NULL, y = NULL) +
   theme(strip.text.y = element_blank())
 
 # mean with variance highlight
-p.mean.mb2 <- ggplot() +
-  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
-  geom_ribbon(aes(year, ymin = mean.lwr, ymax = mean.upr),
+p.mu.mb2 <- ggplot() +
+  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller=label_parsed) +
+  geom_ribbon(aes(year, ymin = lwr.mu, ymax = upr.mu),
               filter(pred, lake == 'Lake Manitoba'), alpha = 0.3) +
   
   # lines
-  # geom_line(aes(year, mean, group = segm.s2), color = '#5E8BDE', # variance highlight
-  #           filter(pred, lake == 'Lake Manitoba', signif.), lwd = 1.5,  alpha = 0.5) +
-  geom_line(aes(year, mean, group = segm.mu), color = '#5E8BDE', # TEMP variance highlight
-            filter(pred, lake == 'Lake Manitoba', signif.mu), lwd = 5) +
-  geom_line(aes(year, mean, group = segm.mu), color = 'red', # mean highlight
+  geom_line(aes(year, mu, group = segm.s2), color = '#5E8BDE', # s2 highlight
+            filter(pred, lake == 'Lake Manitoba', signif.s2), lwd = 2.5) +
+  geom_line(aes(year, mu, group = segm.mu), color = 'red', # mean highlight
             filter(pred, lake == 'Lake Manitoba', signif.mu), lwd = 2) +
-  geom_line(aes(year, mean), filter(pred, lake == 'Lake Manitoba')) +
+  geom_line(aes(year, mu), filter(pred, lake == 'Lake Manitoba')) +
   
   # datapoints
-  geom_point(aes(year, conc), filter(lakes, lake == 'Lake Manitoba'), alpha = 0.3) +
+  geom_point(aes(year, conc), filter(lakes, lake == 'Lake Manitoba'),alpha=0.3)+
   
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = 'Year C.E.', y = expression(Mean~concentration~(nmol~g^{-1}~C)))
 
-p.mean.wpg2 <- ggplot() +
+p.mu.wpg2 <- ggplot() +
   facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
-  geom_ribbon(aes(year, ymin = mean.lwr, ymax = mean.upr),
+  geom_ribbon(aes(year, ymin = lwr.mu, ymax = upr.mu),
               filter(pred, lake == 'Lake Winnipeg'), alpha = 0.3) +
   # lines
-  # geom_line(aes(year, mean, group = segm.s2), color = '#5E8BDE', # variance highlight
-  #           filter(pred, lake == 'Lake Winnipeg', signif.), lwd = 1.5,  alpha = 0.5) +
-  geom_line(aes(year, mean, group = segm.mu), color = '#5E8BDE', # TEMP variance highlight
-            filter(pred, lake == 'Lake Winnipeg', signif.mu), lwd = 5) +
-  geom_line(aes(year, mean, group = segm.mu), color = 'red', # mean highlight
+  geom_line(aes(year, mu, group = segm.s2), color = '#5E8BDE', # s2 highlight
+            filter(pred, lake == 'Lake Winnipeg', signif.s2), lwd = 2.5) +
+  geom_line(aes(year, mu, group = segm.mu), color = 'red', # mean highlight
             filter(pred, lake == 'Lake Winnipeg', signif.mu), lwd = 2) +
-  geom_line(aes(year, mean), filter(pred, lake == 'Lake Winnipeg')) +
+  geom_line(aes(year, mu), filter(pred, lake == 'Lake Winnipeg')) +
   
   # datapoints
   geom_point(aes(year, conc), filter(lakes, lake == 'Lake Winnipeg'), alpha = 0.3) +
@@ -334,24 +228,24 @@ p.mean.wpg2 <- ggplot() +
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = NULL, y = NULL)
 
-p.means.nolabs <-
-  plot_grid(p.mean.mb2 + theme(axis.title.x = element_blank(),
+p.mus.nolabs <-
+  plot_grid(p.mu.mb2 + theme(axis.title.x = element_blank(),
                                strip.text.y = element_text(color = 'transparent')),
-            p.mean.wpg2,
+            p.mu.wpg2,
             nrow = 1) %>%
-  plot_grid(get_plot_component(p.mean.mb, pattern = 'xlab-b'),
+  plot_grid(get_plot_component(p.mu.mb, pattern = 'xlab-b'),
             nrow = 2,
             rel_heights = c(0.95, 0.05))
-#p2pdf('mean-predictions-nolabs.pdf', p.means.nolabs, scale = 2, y.plots = 1.25)
+#p2pdf('mean-predictions-nolabs.pdf', p.mus.nolabs, scale = 2, y.plots = 1.25)
 
-p.means <- plot_grid(get_plot_component(p.mean.mb, pattern = 'ylab-l'),
-                     p.mean.mb2 + theme(axis.title = element_blank(),
+p.mus <- plot_grid(get_plot_component(p.mu.mb, pattern = 'ylab-l'),
+                     p.mu.mb2 + theme(axis.title = element_blank(),
                                         strip.text.y = element_text(color = 'transparent')),
                      NULL,
-                     p.mean.wpg2,
+                     p.mu.wpg2,
                      rel_widths = c(0.15, 1, 0, 1),
                      nrow = 1) %>%
-  plot_grid(get_plot_component(p.mean.mb, pattern = 'xlab-b'),
+  plot_grid(get_plot_component(p.mu.mb, pattern = 'xlab-b'),
             nrow = 2,
             rel_heights = c(0.95, 0.05)) + 
   draw_text(LABELS[1:10],
@@ -359,101 +253,40 @@ p.means <- plot_grid(get_plot_component(p.mean.mb, pattern = 'ylab-l'),
             y = rep(seq(.95, by = -0.178, length.out = 5), 2),
             family = 'serif')
 
-#p2pdf('mean-predictions.pdf', p.means, scale = 2, y.plots = 1.25)
-
-# shape
-p.shape.mb <- ggplot() +
-  facet_grid(pigment.expr ~ lake.expr, labeller = label_parsed) +
-  geom_line(aes(year, shape, group = segm.shape),
-            filter(pred, lake == 'Lake Manitoba', signif.shape), lwd = 2, color = 'grey30') +
-  geom_line(aes(year, shape), filter(pred, lake == 'Lake Manitoba')) +
-  scale_y_continuous(limits = c(0, 5)) +
-  labs(x = NULL, y = expression(Shape~parameter~(nmol~g^{-1}~C))) +
-  theme(strip.background.y = element_blank(),
-        strip.text.y = element_blank())
-p.shape.wpg <- ggplot() +
-  facet_grid(pigment.expr ~ lake.expr, labeller = label_parsed) +
-  geom_line(aes(year, shape, group = segm.shape),
-            filter(pred, lake == 'Lake Winnipeg', signif.shape), lwd = 2, color = 'grey30') +
-  geom_line(aes(year, shape), filter(pred, lake == 'Lake Winnipeg')) +
-  scale_y_continuous(limits = c(0, 5)) +
-  labs(x = NULL, y = NULL) +
-  theme(strip.background.y = element_blank(),
-        strip.text.y = element_blank())
+#p2pdf('mean-predictions.pdf', p.mus, scale = 2, y.plots = 1.25)
 
 # variance
 p.var.mb <- ggplot() +
-  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
-  geom_line(aes(year, s2), filter(pred, lake == 'Lake Manitoba', signif.s2),
+  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller=label_parsed) +
+  geom_ribbon(aes(year, ymin = lwr.s2, ymax = upr.s2),
+              filter(pred, lake == 'Lake Manitoba'), alpha = 0.3) +
+  geom_line(aes(year, s2, group = segm.s2),
+            filter(pred, lake == 'Lake Manitoba', signif.s2),
             color = '#5E8BDE', lwd = 2) +
   geom_line(aes(year, s2), filter(pred, lake == 'Lake Manitoba')) +
   scale_y_continuous(limits = c(0, NA)) +
-  labs(x = NULL, y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C)))) +
+  labs(x = NULL,
+       y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C)))) +
   theme(strip.background.y = element_blank(),
         strip.text.y = element_blank())
+
 p.var.wpg <- ggplot() +
-  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller = label_parsed) +
-  geom_line(aes(year, s2), filter(pred, lake == 'Lake Winnipeg', signif.s2),
+  facet_grid(pigment.expr ~ lake.expr, scales = 'free', labeller=label_parsed) +
+  geom_ribbon(aes(year, ymin = lwr.s2, ymax = upr.s2),
+              filter(pred, lake == 'Lake Winnipeg'), alpha = 0.3) +
+  geom_line(aes(year, s2, group = segm.s2),
+            filter(pred, lake == 'Lake Winnipeg', signif.s2),
             color = '#5E8BDE', lwd = 2) +
   geom_line(aes(year, s2), filter(pred, lake == 'Lake Winnipeg')) +
   scale_y_continuous(limits = c(0, NA)) +
   labs(x = NULL, y = NULL)
 
 # full figure
-p.full <- plot_grid(plot_grid(p.mean.mb + xlab(NULL), p.mean.wpg, NULL,
-                              p.shape.mb, p.shape.wpg, NULL,
+p.full <- plot_grid(plot_grid(p.mu.mb + xlab(NULL), p.mu.wpg, NULL,
                               p.var.mb, p.var.wpg,
                               nrow = 1,
-                              rel_widths = c(1, .95, .1, 1, .95, .1, 1, 1)),
-                    get_plot_component(p.mean.mb, pattern = 'xlab-b'),
+                              rel_widths = c(1, .95, .1, 1, .95)),
+                    get_plot_component(p.mu.mb, pattern = 'xlab-b'),
                     nrow = 2,
                     rel_heights = c(0.95, 0.05))
-#p2pdf('mean-shape-variance-predictions.pdf', p.full, scale = 2, x.plots = 2)
-
-# derivatives plot ####
-slopes.mu <-
-  mutate(slopes.mu,
-         name = as.character(lake_pigment),
-         lake = substr(name, start = 1, regexpr('\\.', name) - 1),
-         pigment = substr(name, regexpr('\\.', name) + 1, stop = nchar(name)),
-         pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
-                                  pigment == 'b_car' ~ 'beta-carotene',
-                                  pigment == 'canth' ~ 'Canthaxanthin',
-                                  pigment == 'diatox' ~ 'Diatoxanthin',
-                                  pigment == 'pheo_b' ~ 'Pheophytin~b'),
-         pigment.expr = factor(pigment.expr, levels = c('Diatoxanthin',
-                                                        'Alloxanthin',
-                                                        'Pheophytin~b',
-                                                        'Canthaxanthin',
-                                                        'beta-carotene')),
-         lake.expr = case_when(lake == 'Lake Manitoba' ~ 'Lake~Manitoba',
-                               lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg'))
-slopes.shape <-
-  mutate(slopes.shape,
-         name = as.character(lake_pigment),
-         lake = substr(name, start = 1, regexpr('\\.', name) - 1),
-         pigment = substr(name, regexpr('\\.', name) + 1, stop = nchar(name)),
-         pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
-                                  pigment == 'b_car' ~ 'beta-carotene',
-                                  pigment == 'canth' ~ 'Canthaxanthin',
-                                  pigment == 'diatox' ~ 'Diatoxanthin',
-                                  pigment == 'pheo_b' ~ 'Pheophytin~b'),
-         pigment.expr = factor(pigment.expr, levels = c('Diatoxanthin',
-                                                        'Alloxanthin',
-                                                        'Pheophytin~b',
-                                                        'Canthaxanthin',
-                                                        'beta-carotene')),
-         lake.expr = case_when(lake == 'Lake Manitoba' ~ 'Lake~Manitoba',
-                               lake == 'Lake Winnipeg' ~ 'Lake~Winnipeg'))
-p.deriv <- 
-  ggplot() +
-  facet_grid(pigment.expr ~ lake.expr, labeller = label_parsed) +
-  geom_hline(yintercept = 0, color = 'grey') +
-  geom_ribbon(aes(year, ymin = lower.mean, ymax = upper.mean), slopes.mu,
-              alpha = 0.2, fill = 'forestgreen') +
-  geom_line(aes(year, derivative), slopes.mu, color = 'forestgreen') +
-  geom_ribbon(aes(year, ymin = lower.shape, ymax = upper.shape), slopes.shape,
-              alpha = 0.2, fill = 'goldenrod') +
-  geom_line(aes(year, derivative), slopes.shape, color = 'goldenrod') +
-  labs(x = 'Year C. E.', y = 'Slope'); p.deriv
-# p2pdf('derivatives.pdf', p.deriv, scale = 2.5)
+#p2pdf('mean-variance-predictions.pdf', p.full, scale = 2, x.plots = 4/3)
