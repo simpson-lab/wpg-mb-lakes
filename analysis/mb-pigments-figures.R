@@ -3,6 +3,7 @@ library('dplyr')  # for data wrangling
 library('tidyr')  # for data wrangling
 library('gratia') # for plotting
 source('analysis/default-figure-styling.R')
+source('analysis/variance-simulation-and-derivatives.R')
 
 # import data and model ----
 mb <- bind_rows(read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx') %>%
@@ -172,20 +173,28 @@ for(i in 2:nrow(pred)) {
 
 
 # create plots ----
-p.mu <- ggplot() +
+p.mu <- ggplot(pred) +
   facet_grid(pigment.expr ~ core, scales = 'free_y', labeller = label_parsed) +
   geom_point(aes(year, conc), mb, alpha = 0.3) +
-  geom_ribbon(aes(year, ymin=lwr.mu, ymax=upr.mu, fill=core), pred, alpha=0.3)+
-  geom_line(aes(year, mu, color = core), pred) +
+  geom_ribbon(aes(year, ymin = lwr.mu, ymax = upr.mu), alpha = 0.3) +
+  geom_line(aes(year, mu, group = segm.mu), filter(pred, signif.mu),
+            color = 'red', lwd = 2) +
+  geom_line(aes(year, mu)) +
   theme(legend.position = 'none') +
   scale_color_brewer(type = 'qual', palette = 6) +
   scale_fill_brewer(type = 'qual', palette = 6) +
   ylim(c(0, NA)) +
   labs(x = 'Year C.E.', y = expression(Mean~concentration~(nmol~g^{-1}~C)))
-p.s2 <- ggplot() +
+
+# truncate CIs to a max of 3000
+p.s2 <-
+  mutate(pred, upr.s2 = if_else(upr.s2 <= 3000, upr.s2, 3000)) %>%
+  ggplot() +
   facet_grid(pigment.expr ~ core, scales = 'free_y', labeller = label_parsed) +
-  #geom_ribbon(aes(year, ymin=lwr.s2, ymax=upr.s2, fill=core), pred, alpha=0.3) +
-  geom_line(aes(year, s2, color = core), pred) +
+  geom_ribbon(aes(year, ymin = lwr.s2, ymax = upr.s2), alpha = 0.3) +
+  geom_line(aes(year, s2, group = segm.s2), filter(pred, signif.s2),
+            color = '#5E8BDE', lwd = 2) +
+  geom_line(aes(year, s2)) +
   theme(legend.position = 'none') +
   scale_color_brewer(type = 'qual', palette = 6) +
   scale_fill_brewer(type = 'qual', palette = 6) +
@@ -193,6 +202,6 @@ p.s2 <- ggplot() +
   labs(x = 'Year C.E.',
        y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C))))
 
-# p2pdf('mb-pigments.pdf', p.mean, width = 5, height = 3.5, scale = 2)
+# p2pdf('mb-pigments.pdf', p.mu, width = 5, height = 3.5, scale = 2)
 p.full <- plot_grid(p.mu, p.s2, ncol = 1, labels = c('a.', 'b.'))
-# p2pdf('mb-pigments-mean-variance.pdf', p.full, width = 5, height = 7, scale = 2)
+# p2pdf('mb-pigments-mean-variance.pdf', p.full, width = 5, height = 7, scale=2)
