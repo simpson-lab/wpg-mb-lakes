@@ -1,0 +1,20 @@
+---
+title: 'wpg-mb methods'
+output: word_document
+bibliography: wpg-mb.bib
+csl: freshwater-biology.csl
+---
+
+All statistical analyses were performed in `R` [version 4.0.4, @r_core_team_r_2021]. The `tidyr` and `dplyr` packages [@wickham_tidyr_2021, @wickham_dplyr_2021] were used for data wrangling, while plots were created using the `ggplot2` and `cowplot` packages [@wickham_ggplot2_2016, @wilke_cowplot_2020]. The code is available on GitHub at https://github.com/simpson-lab/wpg-mb-lakes.
+
+Pigment concentrations were modelled with a hierarchical generalized additive model (HGAMs) using the `mgcv` package [@wood_fast_2011; @wood_generalized_2017; @simpson_modelling_2018; @pedersen_hierarchical_2019]. The HGAM used a Gamma location-scale family which allowed to estimate the trends in the concentrations' mean and variance [@wood_smoothing_2016]. The mean concentration was modelled using factor smooths for each combination of the 2 lakes and 5 pigments, for a total of 10 factors (model *S* sensu @pedersen_hierarchical_2019). The shape term of the distribution was modelled with a similar factor smooth and a smooth of each slice's log-transformed interval, which accounted for the differences in information between slices, since slices which averaged more years were expected to be less variable (i.e. more stable). Observations were weighted by the (standardized) interval of the sample. The smoothness parameter of the model was estimated using restricted maximum likelihood (*REML*, see @simpson_modelling_2018). The estimated variance was then obtained by calculating the product of the mean and shape estimates, and 95% Bayesian credible intervals for the variance were obtained by running 10,000 simulations and taking the 0.025% and 97.5% quantiles of the posterior distribution.
+
+The pigment concentrations in the four cores from Lake Manitoba were estimated in a similar way, but the factor smooths for each combination of the 4 cores and 5 pigments, for a total of 20 factors.
+
+The phosphorous concentrations in the first two cores of Lake Manitoba were also modelled using a GAM. However, since the trends were fairly simple and no complex inference was required, the models were created using the `geom_smooth()` function from the `ggplot2` package with arguments `formula = y ~ s(x)` and `method = 'gam'`, rather than fitting models with the `mgcv` package.
+
+To identify periods of significant change, the first derivative of the estimated smooth trend was evaluated for each proxy from the relevant model [@bennion_assessing_2015; @simpson_modelling_2018]. The first derivative was estimated using functions built with the `gratia` package [@simpson_gratia_2021]. Periods of significant change were identified as periods where the credible interval of the estimated derivative excluded 0 at the $\alpha = 0.05$ level of significance.
+
+***ask Gavin to add some text regarding derivatives*** $\uparrow$
+
+# References
