@@ -26,12 +26,11 @@ mb <-
               mutate(core = 'Core~4',
                      interval = c(SAMPLING.DATE, YEAR[-length(YEAR)]) - YEAR,
                      weight = interval / mean(interval))) %>%
-  select(core, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, PHEO_A, CHLA,
+  select(core, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, CHL_PHEO,
          interval, weight) %>%
   rename(allo = ALLOX,
-         b_car = BCAROT)
-
-colnames(mb) <- tolower(colnames(mb))
+         b_car = BCAROT) %>%
+  rename_with(tolower)
 
 # check weights
 ggplot(mb) +
@@ -41,10 +40,10 @@ ggplot(mb) +
 # no sudden changes in degradation
 ggplot(mb) +
   facet_grid(core ~ ., labeller = label_parsed) +
-  geom_point(aes(year, chla/pheo_a))
+  geom_point(aes(year, chl_pheo))
 
 mb <- mb %>%
-  select(-pheo_a, -chla) %>%
+  select(! chl_pheo) %>%
   pivot_longer(cols = -c('core', 'interval', 'year', 'weight'),
                names_to = 'pigment',
                values_to = 'conc') %>%
@@ -61,20 +60,22 @@ ggplot(mb, aes(year, conc, color = core, fill = core)) +
   scale_fill_brewer(type = 'qual', palette = 6)
 
 # no zeros => can use gamma location-scale model
-sum(mb$conc == 0)
+any(mb$conc == 0)
 
-m <- readRDS('models/mb-pigments-gammals.rds')
-
-# less than a minute on 4 cores
-m <- gam(list(conc ~ s(year, core_pigment, bs = 'fs', k = 10), # mean formula
-              ~ s(year, core_pigment, bs = 'fs', k = 10) +     # scale formula
-                s(interval, bs = 'cr', k = 5)),
-         family = gammals(),
-         data = mb,
-         method = 'REML',
-         weights = weight,
-         control = gam.control(nthreads = 4))
-#saveRDS(m, 'models/mb-pigments-gammals.rds')
+if(file.exists('models/mb-pigments-gammals.rds')) {
+  m <- readRDS('models/mb-pigments-gammals.rds')
+} else {
+  # ~ 1 minute
+  m <- gam(list(conc ~ s(year, core_pigment, bs = 'fs', k = 10), # mean formula
+                ~ s(year, core_pigment, bs = 'fs', k = 10) +     # scale formula
+                  s(interval, bs = 'cr', k = 5)),
+           family = gammals(),
+           data = mb,
+           method = 'REML',
+           weights = weight,
+           control = gam.control(trace = TRUE))
+  saveRDS(m, 'models/mb-pigments-gammals.rds')
+}
 
 appraise(m) # diagnostics ok
 draw(m)
