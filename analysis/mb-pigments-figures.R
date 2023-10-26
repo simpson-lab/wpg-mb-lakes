@@ -239,3 +239,25 @@ p.s2 <-
 # p2pdf('mb-pigments-var.pdf', p.s2, width = 5, height = 3.5, scale = 2)
 p.full <- plot_grid(p.mu, p.s2, ncol = 1, labels = c('a.', 'b.'))
 # p2pdf('mb-pigments-mean-variance.pdf', p.full, width = 5, height = 7, scale=2)
+
+# figure of akinetes from Core 1
+akin <-
+  read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx') %>%
+  mutate(pigment.expr = 'Akinetes') %>%
+  ggplot(aes(YEAR, CYANOS)) +
+  facet_grid(pigment.expr ~ ., scales = 'free_y', labeller = label_parsed) +
+  geom_point(alpha = 0.3) +
+  scale_x_continuous('Year C.E.', breaks=seq(1800, 2000, by = 10),
+                     labels = c(1800, rep('', 4), 1850, rep('', 4),
+                                1900, rep('', 4), 1950, rep('', 4), 2000))+
+  scale_color_brewer(type = 'qual', palette = 6) +
+  scale_fill_brewer(type = 'qual', palette = 6) +
+  scale_y_continuous(expression(atop(Concentration,
+                                     x10^{3}~(g^{-1}~wet))),
+                     limits = c(0, NA)) +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size=11),
+        axis.title = element_text(size=11))
+akin
+
+# p2pdf('mb-akinetes.pdf', akin, width = 5, height = 4)
