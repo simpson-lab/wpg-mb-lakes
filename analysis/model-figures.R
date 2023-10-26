@@ -60,7 +60,7 @@ lakes <- rbind(wpg, mb) %>%
   filter(year >= 1800)
 
 # read in model
-m.gammals <- read_rds('models/lakes-gammals-fs.rds')
+m.gammals <- readRDS('models/lakes-gammals-fs.rds')
 
 # predictions ----
 # create new data for regularly-spaced predictions
