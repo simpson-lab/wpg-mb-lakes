@@ -15,31 +15,48 @@ mb <- bind_rows(read_xlsx('data/mb/Manitoba pigs isotope Core 1 April 2014.xlsx'
                   mutate(core = 'Core~3'),
                 read_xlsx('data/mb/Manitoba pigs isotope Core 4 April 2014.xlsx') %>%
                   mutate(core = 'Core~4')) %>%
-  select(core, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, PHEO_A, CHLA) %>%
+  select(core, YEAR, ALLOX, DIATOX, CANTH, PHEO_B, BCAROT, CHL_PHEO) %>%
   rename(allo = ALLOX,
          b_car = BCAROT) %>%
   mutate(interval = lag(YEAR) - YEAR) %>%
-  filter(interval > 0)
-colnames(mb) <- tolower(colnames(mb))
+  filter(interval > 0) %>%
+  rename_with(tolower)
+
+## plot small facet of chla/pheoa
+chlpheo <- 
+  ggplot(mb, aes(x = year, y = chl_pheo))+ 
+  geom_line(linewidth = 0.75)+ 
+  geom_point(size = 1.5)+
+  facet_wrap(~ core, scales = 'free_y', labeller = label_parsed)+
+  expand_limits(y = 0) +
+  labs(y = expression(Chlorophyll~a/Pheophytin~a), x = 'Year C.E.')+ 
+  theme_bw()+
+  theme(strip.background = element_blank())+
+  theme(strip.text = element_text(size = 11))
+chlpheo
+
+p2pdf('chlpheo.pdf', chlpheo, scale = 2, y.plots=1.25)
+
 mb <- mb %>%
-  select(-pheo_a, -chla) %>%
+  select(! chl_pheo) %>%
   pivot_longer(cols = -c('core', 'interval', 'year'),
                names_to = 'pigment',
                values_to = 'conc') %>%
   mutate(pigment = factor(pigment)) %>%
   filter(!is.na(conc)) %>%
   mutate(core_pigment = interaction(core, pigment, sep = '_'),
-         pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
-                                  pigment == 'b_car' ~ 'beta-carotene',
-                                  pigment == 'canth' ~ 'Canthaxanthin',
-                                  pigment == 'diatox' ~ 'Diatoxanthin',
-                                  pigment == 'pheo_b' ~ 'Pheophytin~b'),
-         pigment.expr = factor(pigment.expr, levels = c('Diatoxanthin',
-                                                        'Alloxanthin',
-                                                        'Pheophytin~b',
-                                                        'Canthaxanthin',
-                                                        'beta-carotene')))
+         pigment.expr = case_when(pigment == 'allo' ~ 'Cryptophytes',
+                                  pigment == 'b_car' ~ 'Total~production',
+                                  pigment == 'canth' ~ 'Cyanobacteria',
+                                  pigment == 'diatox' ~ 'Diatoms',
+                                  pigment == 'pheo_b' ~ 'Chlorophytes'),
+         pigment.expr = factor(pigment.expr, levels = c('Diatoms',
+                                                        'Cryptophytes',
+                                                        'Chlorophytes',
+                                                        'Cyanobacteria',
+                                                        'Total~production')))
 
+# import the pigment model
 m <- readRDS('models/mb-pigments-gammals.rds')
 
 # create predictions ----
@@ -52,6 +69,8 @@ newd <- expand_grid(year = seq(1801, 2010, length.out = 400),
 
 # find derivatives
 set.seed(1)
+
+# splitting into two because memory demand is too high with a single value
 newd.12 <- filter(newd, core %in% c('Core~1', 'Core~2'))
 newd.34 <- filter(newd, core %in% c('Core~3', 'Core~4'))
 
@@ -62,6 +81,7 @@ slopes.mu.12 <-
             lwr.mu.deriv = quantile(derivative, probs = 0.025),
             upr.mu.deriv = quantile(derivative, probs = 0.975),
             .groups = 'drop')
+
 slopes.mu.34 <-
   gammals_mean_deriv(model = m, data = newd.34, var = 'year', nsims = 1e4) %>%
   group_by(year, core_pigment) %>%
@@ -134,16 +154,16 @@ pred <-
   left_join(slopes.s2, by = c('year', 'core_pigment')) %>%
   mutate(signif.mu = lwr.mu.deriv > 0 | upr.mu.deriv < 0,
          signif.s2 = lwr.s2.deriv > 0 | upr.s2.deriv < 0) %>%
-  mutate(pigment.expr = case_when(pigment == 'allo' ~ 'Alloxanthin',
-                                  pigment == 'b_car' ~ 'beta-carotene',
-                                  pigment == 'canth' ~ 'Canthaxanthin',
-                                  pigment == 'diatox' ~ 'Diatoxanthin',
-                                  pigment == 'pheo_b' ~ 'Pheophytin~b'),
-         pigment.expr = factor(pigment.expr, levels = c('Diatoxanthin',
-                                                        'Alloxanthin',
-                                                        'Pheophytin~b',
-                                                        'Canthaxanthin',
-                                                        'beta-carotene'))) %>%
+  mutate(pigment.expr = case_when(pigment == 'allo' ~ 'Cryptophytes',
+                                  pigment == 'b_car' ~ 'Total~production',
+                                  pigment == 'canth' ~ 'Cyanobacteria',
+                                  pigment == 'diatox' ~ 'Diatoms',
+                                  pigment == 'pheo_b' ~ 'Chlorophytes'),
+         pigment.expr = factor(pigment.expr, levels = c('Diatoms',
+                                                        'Cryptophytes',
+                                                        'Chlorophytes',
+                                                        'Cyanobacteria',
+                                                        'Total~production'))) %>%
   arrange(core_pigment) %>%
   mutate(segm.mu.bool = signif.mu != lag(signif.mu) |
            core_pigment != lag(core_pigment),
@@ -173,7 +193,10 @@ for(i in 2:nrow(pred)) {
 
 
 # create plots ----
-p.mu <- ggplot(pred) +
+p.mu <-
+  pred %>%
+  mutate(pred, upr.mu = if_else(upr.mu <= 300, upr.mu, 300)) %>%
+  ggplot() +
   facet_grid(pigment.expr ~ core, scales = 'free_y', labeller = label_parsed) +
   geom_point(aes(year, conc), mb, alpha = 0.3) +
   geom_ribbon(aes(year, ymin = lwr.mu, ymax = upr.mu), alpha = 0.3) +
@@ -184,11 +207,15 @@ p.mu <- ggplot(pred) +
   scale_color_brewer(type = 'qual', palette = 6) +
   scale_fill_brewer(type = 'qual', palette = 6) +
   ylim(c(0, NA)) +
-  labs(x = 'Year C.E.', y = expression(Mean~concentration~(nmol~g^{-1}~C)))
+  labs(x = 'Year C.E.', y = expression(Concentration~(nmol~g^{-1}~C)))
 
 # truncate CIs to a max of 3000
 p.s2 <-
-  mutate(pred, upr.s2 = if_else(upr.s2 <= 3000, upr.s2, 3000)) %>%
+  mutate(pred,
+         s2 = if_else(s2 <= 3000, s2, NA_real_),
+         upr.s2 = if_else(upr.s2 <= 3000, upr.s2, 3000),
+         upr.s2 = if_else(pigment.expr == 'Total~production' &
+                            upr.s2 > 500, 500, upr.s2)) %>%
   ggplot() +
   facet_grid(pigment.expr ~ core, scales = 'free_y', labeller = label_parsed) +
   geom_ribbon(aes(year, ymin = lwr.s2, ymax = upr.s2), alpha = 0.3) +
@@ -203,5 +230,6 @@ p.s2 <-
        y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C))))
 
 # p2pdf('mb-pigments.pdf', p.mu, width = 5, height = 3.5, scale = 2)
+# p2pdf('mb-pigments-var.pdf', p.s2, width = 5, height = 3.5, scale = 2)
 p.full <- plot_grid(p.mu, p.s2, ncol = 1, labels = c('a.', 'b.'))
 # p2pdf('mb-pigments-mean-variance.pdf', p.full, width = 5, height = 7, scale=2)
