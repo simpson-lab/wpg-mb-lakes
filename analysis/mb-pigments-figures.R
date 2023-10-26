@@ -194,7 +194,6 @@ for(i in 2:nrow(pred)) {
 
 # create plots ----
 p.mu <-
-  pred %>%
   mutate(pred, upr.mu = if_else(upr.mu <= 300, upr.mu, 300)) %>%
   ggplot() +
   facet_grid(pigment.expr ~ core, scales = 'free_y', labeller = label_parsed) +
@@ -203,11 +202,17 @@ p.mu <-
   geom_line(aes(year, mu, group = segm.mu), filter(pred, signif.mu),
             color = 'red', lwd = 2) +
   geom_line(aes(year, mu)) +
-  theme(legend.position = 'none') +
+  scale_x_continuous('Year C.E.', breaks=seq(1800, 2000, by = 10),
+                     labels = c(1800, rep('', 4), 1850, rep('', 4),
+                                1900, rep('', 4), 1950, rep('', 4), 2000))+
   scale_color_brewer(type = 'qual', palette = 6) +
   scale_fill_brewer(type = 'qual', palette = 6) +
-  ylim(c(0, NA)) +
-  labs(x = 'Year C.E.', y = expression(Concentration~(nmol~g^{-1}~C)))
+  scale_y_continuous(expression(Concentration~(nmol~g^{-1}~C)),
+                     limits = c(0, NA)) +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size=11),
+        axis.title = element_text(size=11))
+p.mu
 
 # truncate CIs to a max of 3000
 p.s2 <-
@@ -222,12 +227,13 @@ p.s2 <-
   geom_line(aes(year, s2, group = segm.s2), filter(pred, signif.s2),
             color = '#5E8BDE', lwd = 2) +
   geom_line(aes(year, s2)) +
-  theme(legend.position = 'none') +
   scale_color_brewer(type = 'qual', palette = 6) +
   scale_fill_brewer(type = 'qual', palette = 6) +
   ylim(c(0, NA)) +
   labs(x = 'Year C.E.',
-       y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C))))
+       y = expression(paste(Concentration~variance~(nmol^2~g^{-2}~C)))) +
+  theme(strip.text = element_text(size=12),
+        axis.title = element_text(size=12))
 
 # p2pdf('mb-pigments.pdf', p.mu, width = 5, height = 3.5, scale = 2)
 # p2pdf('mb-pigments-var.pdf', p.s2, width = 5, height = 3.5, scale = 2)
